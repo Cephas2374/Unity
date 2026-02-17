@@ -505,66 +505,56 @@ public class CesiumFeatureColorizer : MonoBehaviour
             }
         }
 
-        // Final statistics
-        float matchRate = uniqueBuildingsInTileset.Count > 0 
-            ? (uniqueBuildingsInTileset.Count * 100f / energyManager.buildingColorCache.Count) 
-            : 0f;
+        // Final statistics — count how many tileset buildings got a color from API
+        int tilesetCount = uniqueBuildingsInTileset.Count;
+        int apiCount = energyManager.buildingColorCache.Count;
+        
+        // Count matched tileset buildings: direct cache hits + normalized/fallback matches via idMatchCache
+        int matchedCount = 0;
+        foreach (var tileId in uniqueBuildingsInTileset)
+        {
+            if (energyManager.buildingColorCache.ContainsKey(tileId) || idMatchCache.ContainsKey(tileId))
+                matchedCount++;
+        }
+        
+        float matchRate = tilesetCount > 0 ? (matchedCount * 100f / tilesetCount) : 0f;
+        int unmatchedTileset = tilesetCount - matchedCount;
         
         Debug.Log($"<color=green>✅ Recoloring complete</color>");
-        Debug.Log($"<color=yellow>API: {energyManager.buildingColorCache.Count} | Tileset: {uniqueBuildingsInTileset.Count} | Match: {matchRate:F1}%</color>");
+        Debug.Log($"<color=yellow>API: {apiCount} | Tileset: {tilesetCount} | Colored: {matchedCount} | Match: {matchRate:F1}%</color>");
         
-        int missing = energyManager.buildingColorCache.Count - uniqueBuildingsInTileset.Count;
-        if (missing > 0)
+        if (unmatchedTileset > 0)
         {
-            float mismatchPercent = (missing * 100f) / energyManager.buildingColorCache.Count;
-            if (mismatchPercent > 80f)
+            Debug.Log($"<color=cyan>ℹ️ {unmatchedTileset} tileset buildings have no energy data in API (not in database)</color>");
+        }
+        
+        if (matchRate < 50f && tilesetCount > 0)
+        {
+            Debug.LogWarning($"<color=orange>⚠️ Low match rate: {matchRate:F1}% — only {matchedCount}/{tilesetCount} tileset buildings found in API</color>");
+            Debug.LogWarning($"<color=yellow>Possible causes: stale cache, case mismatch, or tileset covers area outside API data</color>");
+            Debug.LogWarning($"<color=cyan>Try: Right-click BuildingEnergyManager → Hard Refresh Cache</color>");
+            
+            // Show ID samples for debugging
+            Debug.Log($"<color=magenta>========== ID FORMAT DIAGNOSTIC ==========</color>");
+            Debug.Log($"<color=cyan>📦 TILESET gml:id (first 5):</color>");
+            foreach (var id in uniqueBuildingsInTileset.Take(5))
             {
-                Debug.LogWarning($"<color=orange>⚠️ Low match: {matchRate:F1}% ({missing} API buildings not in tileset)</color>");
-                Debug.LogWarning($"<color=yellow>This is NORMAL if your tileset covers a different geographic area than API data</color>");
-                Debug.LogWarning($"<color=cyan>Only refresh cache if this seems wrong for your tileset area</color>");
-                
-                // Show ID comparison samples for debugging (10 samples each for better pattern detection)
-                Debug.Log($"<color=magenta>========== ID FORMAT DIAGNOSTIC ==========</color>");
-                Debug.Log($"<color=cyan>📦 TILESET gml:id (first 10):</color>");
-                foreach (var id in uniqueBuildingsInTileset.Take(10))
-                {
-                    Debug.Log($"<color=cyan>   '{id}' (length: {id.Length})</color>");
-                }
-                
-                Debug.Log($"<color=lime>🌐 API modified_gml_id (first 10):</color>");
-                foreach (var id in energyManager.buildingColorCache.Keys.Take(10))
-                {
-                    Debug.Log($"<color=lime>   '{id}' (length: {id.Length})</color>");
-                }
-                
-                // Check substring patterns
-                var tilesetSample = uniqueBuildingsInTileset.FirstOrDefault();
-                var apiSample = energyManager.buildingColorCache.Keys.FirstOrDefault();
-                if (!string.IsNullOrEmpty(tilesetSample) && !string.IsNullOrEmpty(apiSample))
-                {
-                    Debug.Log($"<color=yellow>🔍 PATTERN ANALYSIS:</color>");
-                    
-                    // Check if API contains tileset as substring
-                    int apiContainsTileset = 0;
-                    int tilesetContainsApi = 0;
-                    foreach (var tileId in uniqueBuildingsInTileset.Take(50))
-                    {
-                        if (energyManager.buildingColorCache.Keys.Any(k => k.Contains(tileId)))
-                            apiContainsTileset++;
-                        if (energyManager.buildingColorCache.Keys.Any(k => tileId.Contains(k)))
-                            tilesetContainsApi++;
-                    }
-                    
-                    Debug.Log($"<color=yellow>   API contains Tileset ID: {apiContainsTileset}/50 samples</color>");
-                    Debug.Log($"<color=yellow>   Tileset contains API ID: {tilesetContainsApi}/50 samples</color>");
-                    Debug.Log($"<color=magenta>===========================================</color>");
-                }
+                Debug.Log($"<color=cyan>   '{id}'</color>");
             }
-            else if (mismatchPercent > 50f)
+            Debug.Log($"<color=lime>🌐 API cache keys (first 5):</color>");
+            foreach (var id in energyManager.buildingColorCache.Keys.Take(5))
             {
-                Debug.LogWarning($"<color=orange>⚠️ Moderate mismatch: {mismatchPercent:F0}% of API buildings not in tileset</color>");
-                Debug.LogWarning($"<color=yellow>If unexpected: Right-click BuildingEnergyManager → Hard Refresh Cache</color>");
+                Debug.Log($"<color=lime>   '{id}'</color>");
             }
+            Debug.Log($"<color=magenta>===========================================</color>");
+        }
+        else if (matchRate >= 50f && matchRate < 85f)
+        {
+            Debug.Log($"<color=yellow>📊 Moderate match: {matchedCount}/{tilesetCount} ({matchRate:F1}%)</color>");
+        }
+        else if (tilesetCount > 0)
+        {
+            Debug.Log($"<color=green>✅ Good match: {matchedCount}/{tilesetCount} ({matchRate:F1}%)</color>");
         }
     }
 
@@ -661,32 +651,35 @@ public class CesiumFeatureColorizer : MonoBehaviour
         
         int tilesetCount = uniqueBuildingsInTileset.Count;
         int apiCount = energyManager.buildingColorCache.Count;
-        float matchPercent = apiCount > 0 ? (tilesetCount * 100f / apiCount) : 0f;
+        
+        // Count how many tileset buildings have a match in the API cache (case-insensitive via idMatchCache)
+        int matchedCount = 0;
+        foreach (var tileId in uniqueBuildingsInTileset)
+        {
+            if (energyManager.buildingColorCache.ContainsKey(tileId) || idMatchCache.ContainsKey(tileId))
+                matchedCount++;
+        }
+        float matchPercent = tilesetCount > 0 ? (matchedCount * 100f / tilesetCount) : 0f;
+        int unmatchedCount = tilesetCount - matchedCount;
 
         Debug.Log($"<color=yellow>API buildings: {apiCount}</color>");
         Debug.Log($"<color=yellow>Tileset buildings: {tilesetCount}</color>");
+        Debug.Log($"<color=yellow>Matched (colored): {matchedCount}</color>");
+        Debug.Log($"<color=yellow>No energy data: {unmatchedCount}</color>");
         Debug.Log($"<color=green>Match rate: {matchPercent:F1}%</color>");
 
-        // Low match rate is common when using different tileset area than API data covers
-        if (matchPercent < 20f)
+        if (matchPercent >= 85f)
         {
-            Debug.LogWarning($"<color=orange>⚠️ Low match rate: {matchPercent:F1}%</color>");
-            Debug.LogWarning($"<color=yellow>This is NORMAL if your tileset covers a different area than API data</color>");
-            Debug.LogWarning($"<color=yellow>Buildings in tileset: {tilesetCount} | Buildings in API: {apiCount}</color>");
-            Debug.LogWarning($"<color=cyan>If unexpected: Right-click BuildingEnergyManager → Hard Refresh Cache</color>");
+            Debug.Log($"<color=green>✅ GOOD: {matchPercent:F1}% of tileset buildings have energy data</color>");
         }
-        else if (matchPercent < 50f)
+        else if (matchPercent >= 50f)
         {
-            Debug.LogWarning($"<color=orange>⚠️ Moderate match: {matchPercent:F1}%</color>");
-            Debug.LogWarning($"<color=yellow>Consider refreshing cache if this seems incorrect</color>");
-        }
-        else if (matchPercent < 90f)
-        {
-            Debug.LogWarning($"<color=orange>⚠️ WARNING: {matchPercent:F1}% match rate</color>");
+            Debug.Log($"<color=yellow>📊 Moderate: {matchPercent:F1}% match — {unmatchedCount} buildings not in energy database</color>");
         }
         else
         {
-            Debug.Log($"<color=green>✅ GOOD: {matchPercent:F1}% match rate</color>");
+            Debug.LogWarning($"<color=orange>⚠️ Low match: {matchPercent:F1}% — most tileset buildings have no API data</color>");
+            Debug.LogWarning($"<color=cyan>Try: Right-click BuildingEnergyManager → Hard Refresh Cache</color>");
         }
 
         Debug.Log("<color=cyan>========================================</color>");
@@ -784,6 +777,21 @@ public class CesiumFeatureColorizer : MonoBehaviour
     public int GetTilesetBuildingCount()
     {
         return uniqueBuildingsInTileset.Count;
+    }
+
+    /// <summary>
+    /// Get the count of tileset buildings that successfully matched an API cache entry
+    /// </summary>
+    public int GetMatchedBuildingCount()
+    {
+        if (energyManager == null) return 0;
+        int matched = 0;
+        foreach (var tileId in uniqueBuildingsInTileset)
+        {
+            if (energyManager.buildingColorCache.ContainsKey(tileId) || idMatchCache.ContainsKey(tileId))
+                matched++;
+        }
+        return matched;
     }
 
     /// <summary>

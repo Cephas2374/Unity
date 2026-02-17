@@ -181,13 +181,13 @@ public class BuildingCountDisplay : MonoBehaviour
             {
                 displayString += $"<color=#03A9F4>🏢 Tileset: {lastTilesetCount}</color>\n";
                 
-                // Show match status
-                int apiCount = stats["total"];
-                if (apiCount > 0)
+                // Show actual match count (tileset buildings that have API energy data)
+                int matchedCount = featureColorizer.GetMatchedBuildingCount();
+                if (lastTilesetCount > 0)
                 {
-                    float matchPercent = (Mathf.Min(lastTilesetCount, apiCount) * 100f) / Mathf.Max(lastTilesetCount, apiCount);
-                    string statusColor = matchPercent > 90f ? "#4CAF50" : matchPercent > 70f ? "#FF9800" : "#F44336";
-                    displayString += $"<color={statusColor}>📊 Match: {matchPercent:F0}%</color>\n";
+                    float matchPercent = matchedCount * 100f / lastTilesetCount;
+                    string statusColor = matchPercent > 85f ? "#4CAF50" : matchPercent > 50f ? "#FF9800" : "#F44336";
+                    displayString += $"<color={statusColor}>📊 Colored: {matchedCount}/{lastTilesetCount} ({matchPercent:F0}%)</color>\n";
                 }
             }
         }
