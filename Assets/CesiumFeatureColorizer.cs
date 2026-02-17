@@ -63,6 +63,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
     private int totalVerticesColored = 0;
     private HashSet<string> uniqueBuildingsInTileset = new HashSet<string>();
     private Dictionary<string, string> idMatchCache = new Dictionary<string, string>(); // gmlId -> matched API key
+    private Dictionary<string, string> reverseGmlIdCache = new Dictionary<string, string>(); // gml_id -> modified_gml_id
 
     void Start()
     {
@@ -157,12 +158,10 @@ public class CesiumFeatureColorizer : MonoBehaviour
         
         if (energyManager.buildingColorCache.Count > 0)
         {
-            Debug.Log($"<color=green>✅ Cache loaded: {energyManager.buildingColorCache.Count} colors</color>");
-            if (!skipInitialRecolor)
-            {
-                Debug.Log($"<color=cyan>Starting initial recoloring...</color>");
-                RecolorAllTiles();
-            }
+            Debug.Log($"<color=green>✅ Cache loaded (late): {energyManager.buildingColorCache.Count} colors</color>");
+            // Always recolor when data arrives late — this coroutine only runs when cache was empty at startup
+            Debug.Log($"<color=cyan>Starting recoloring with newly loaded cache data...</color>");
+            RecolorAllTiles();
         }
         else
         {
@@ -186,6 +185,13 @@ public class CesiumFeatureColorizer : MonoBehaviour
             return;
 
         processedTiles.Add(tileGameObject);
+        
+        // Ensure reverse gmlId lookup is built (for tiles arriving after startup)
+        if (reverseGmlIdCache.Count == 0 && energyManager != null && energyManager.gmlIdCache.Count > 0)
+        {
+            foreach (var mapping in energyManager.gmlIdCache)
+                reverseGmlIdCache[mapping.Value] = mapping.Key;
+        }
 
         MeshRenderer[] renderers = tileGameObject.GetComponentsInChildren<MeshRenderer>();
         foreach (MeshRenderer renderer in renderers)
@@ -364,6 +370,24 @@ public class CesiumFeatureColorizer : MonoBehaviour
             return directColor;
         }
 
+        // Try gmlIdCache mapping (modified_gml_id ↔ gml_id) using O(1) lookups
+        // Case 1: gmlId is a gml_id → look up the corresponding modified_gml_id
+        if (reverseGmlIdCache.TryGetValue(gmlId, out string modifiedId) && 
+            energyManager.buildingColorCache.TryGetValue(modifiedId, out Color mappedColor))
+        {
+            idMatchCache[gmlId] = modifiedId;
+            featureColorCache[featureId] = mappedColor;
+            return mappedColor;
+        }
+        // Case 2: gmlId is a modified_gml_id → look up the corresponding gml_id
+        if (energyManager.gmlIdCache.TryGetValue(gmlId, out string basicId) && 
+            energyManager.buildingColorCache.TryGetValue(basicId, out Color mappedColor2))
+        {
+            idMatchCache[gmlId] = basicId;
+            featureColorCache[featureId] = mappedColor2;
+            return mappedColor2;
+        }
+
         // Try cached match
         if (idMatchCache.TryGetValue(gmlId, out string matchedKey) && 
             energyManager.buildingColorCache.TryGetValue(matchedKey, out Color cachedMatchColor))
@@ -480,6 +504,14 @@ public class CesiumFeatureColorizer : MonoBehaviour
         totalVerticesColored = 0;
         uniqueBuildingsInTileset.Clear();
         idMatchCache.Clear();
+        
+        // Build reverse gmlIdCache lookup (gml_id → modified_gml_id) for fast ID matching
+        reverseGmlIdCache.Clear();
+        foreach (var mapping in energyManager.gmlIdCache)
+        {
+            reverseGmlIdCache[mapping.Value] = mapping.Key;
+        }
+        Debug.Log($"<color=cyan>Built reverse gmlId lookup: {reverseGmlIdCache.Count} entries</color>");
 
         MeshRenderer[] allRenderers = tileset.GetComponentsInChildren<MeshRenderer>();
         

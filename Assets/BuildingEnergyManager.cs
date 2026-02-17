@@ -77,6 +77,13 @@ public class BuildingEnergyManager : MonoBehaviour
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
     public Dictionary<string, Color> buildingColorCache = new Dictionary<string, Color>();
+    
+    /// <summary>
+    /// Maps modified_gml_id → gml_id (e.g., "DEBW_0010008wrid6" → "DEBWL0010008wrid6")
+    /// Same as UE5's GmlIdCache - needed because gml_id cannot be derived by string manipulation
+    /// </summary>
+    public Dictionary<string, string> gmlIdCache = new Dictionary<string, string>();
+    
     private Cesium3DTileset buildingsTileset;
     private float changeCheckTimer = 0f;
     private HashSet<string> modifiedBuildingIds = new HashSet<string>(); // Track buildings modified in this session
@@ -1301,7 +1308,20 @@ public class BuildingEnergyManager : MonoBehaviour
             }
         }
         
-        Debug.Log($"<color=green>✅ Lazy parsing complete: {processedCount} buildings indexed</color>");
+        // Update statistics after lazy parsing
+        cachedBuildingCount = buildingDataCache.Count;
+        totalBuildingsLoaded = buildingDataCache.Count;
+        buildingsWithColor = buildingColorCache.Count;
+        buildingsWithoutColor = buildingDataCache.Count - buildingColorCache.Count;
+        lastCacheUpdate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        
+        int skippedCount = parsedJsonArray.Count - processedCount;
+        Debug.Log($"<color=green>✅ Lazy parsing complete: {processedCount} buildings indexed, {skippedCount} skipped (out of {parsedJsonArray.Count} total)</color>");
+        Debug.Log($"<color=green>   Colors in cache: {buildingColorCache.Count}</color>");
+        if (skippedCount > 0)
+        {
+            Debug.LogWarning($"<color=orange>⚠️ {skippedCount} buildings failed to parse - they will not appear in cache!</color>");
+        }
     }
     
     /// <summary>
@@ -1326,9 +1346,17 @@ public class BuildingEnergyManager : MonoBehaviour
             try
             {
                 string gmlId = building["modified_gml_id"]?.ToString();
+                string gmlIdBasic = building["gml_id"]?.ToString();
                 
                 // Only parse if this building is in the tileset
+                // Check BOTH modified_gml_id AND gml_id since tileset gml:id may use either format
+                bool inTileset = false;
                 if (!string.IsNullOrEmpty(gmlId) && tilesetBuildingIds.Contains(gmlId))
+                    inTileset = true;
+                else if (!string.IsNullOrEmpty(gmlIdBasic) && tilesetBuildingIds.Contains(gmlIdBasic))
+                    inTileset = true;
+                
+                if (inTileset)
                 {
                     BuildingData data = ParseSingleBuilding(building);
                     if (data != null)
@@ -1353,10 +1381,17 @@ public class BuildingEnergyManager : MonoBehaviour
             }
         }
         
+        // Update statistics
+        cachedBuildingCount = buildingDataCache.Count;
+        totalBuildingsLoaded = buildingDataCache.Count;
+        buildingsWithColor = buildingColorCache.Count;
+        buildingsWithoutColor = buildingDataCache.Count - buildingColorCache.Count;
+        lastCacheUpdate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        
         Debug.Log($"<color=green>✅ Selective parsing complete:</color>");
         Debug.Log($"<color=green>   Scanned: {processedCount} buildings</color>");
         Debug.Log($"<color=green>   Matched: {matchedCount} buildings in tileset</color>");
-        Debug.Log($"<color=green>   Cached: {buildingDataCache.Count} buildings</color>");
+        Debug.Log($"<color=green>   Cached: {buildingDataCache.Count} buildings, {buildingColorCache.Count} colors</color>");
     }
     
     void ParseBuildingsData(string jsonResponse)
@@ -1535,26 +1570,27 @@ public class BuildingEnergyManager : MonoBehaviour
                 string hexColor = energyResult["end"]?["color"]?["energy_demand_specific_color"]?.ToString();
                 if (!string.IsNullOrEmpty(hexColor) && ColorUtility.TryParseHtmlString(hexColor, out Color parsedColor))
                 {
-                    // ✅ Use EXACT hex color from API (multiple buildings can share colors - this is normal)
+                    // ✅ Store color under BOTH modified_gml_id AND gml_id (like UE5 dual storage)
                     buildingColorCache[gmlId] = parsedColor;
+                    if (!string.IsNullOrEmpty(data.gmlIdBasic))
+                    {
+                        buildingColorCache[data.gmlIdBasic] = parsedColor;
+                    }
                     
-                    if (buildingDataCache.Count <= 10 || gmlId.Contains("DEBW_0010008wid6"))
+                    if (buildingDataCache.Count <= 10)
                     {
                         Debug.Log($"<color=green>🎨 Building '{gmlId}':</color>");
                         Debug.Log($"<color=yellow>   • Energy Demand: {data.energyDemandAfter} kWh/m²a</color>");
                         Debug.Log($"<color=yellow>   • EXACT API Hex Color: {hexColor}</color>");
-                        Debug.Log($"<color=yellow>   • RGB: ({parsedColor.r:F3}, {parsedColor.g:F3}, {parsedColor.b:F3})</color>");
-                        Debug.Log($"<color=yellow>   • Cached with key: '{gmlId}'</color>");
+                        Debug.Log($"<color=yellow>   • Dual cached: '{gmlId}' + '{data.gmlIdBasic}'</color>");
                     }
                 }
                 else
                 {
                     // ✅ NO default color fallback - if API has no color, don't color the building
-                    if (buildingDataCache.Count <= 10 || gmlId.Contains("DEBW_0010008wid6"))
+                    if (buildingDataCache.Count <= 10)
                     {
                         Debug.LogWarning($"<color=orange>⚠️ Building '{gmlId}': API provided no color</color>");
-                        Debug.LogWarning($"<color=orange>   • hexColor value: '{hexColor}'</color>");
-                        Debug.LogWarning($"<color=orange>   • energy_result exists: {energyResult != null}</color>");
                     }
                 }
             }
@@ -1564,11 +1600,19 @@ public class BuildingEnergyManager : MonoBehaviour
                 buildingColorCache[gmlId] = defaultColor;
             }
             
+            // ✅ Store GML ID mapping (like UE5's GmlIdCache)
+            if (!string.IsNullOrEmpty(data.gmlIdBasic))
+            {
+                gmlIdCache[gmlId] = data.gmlIdBasic;
+            }
+            
             return data;
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return null; // Silently skip unparseable buildings
+            string tryGmlId = building["modified_gml_id"]?.ToString() ?? "unknown";
+            Debug.LogWarning($"<color=orange>⚠️ Failed to parse building '{tryGmlId}': {e.Message}</color>");
+            return null;
         }
     }
     
