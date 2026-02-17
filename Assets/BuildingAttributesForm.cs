@@ -117,14 +117,8 @@ public class BuildingAttributesForm : MonoBehaviour
         Debug.Log($"📋 ShowBuildingForm called for: {gmlId}");
         
         currentGmlId = gmlId;
-        // Use gmlIdBasic from buildingData - this is the correct gml_id from the API
-        // Do NOT derive by removing underscores - gml_id format differs from modified_gml_id
-        currentGmlIdBasic = buildingData?.gmlIdBasic;
-        
-        if (string.IsNullOrEmpty(currentGmlIdBasic))
-        {
-            Debug.LogError($"❌ gmlIdBasic is null for building '{gmlId}' - building data may not be loaded from API yet");
-        }
+        // Use gmlIdBasic from buildingData (already in correct format from cache)
+        currentGmlIdBasic = buildingData?.gmlIdBasic ?? gmlId?.Replace("_", "");
         currentBuildingData = buildingData;
 
         Debug.Log($"📋 currentGmlId = '{currentGmlId}'");
@@ -1124,13 +1118,20 @@ public class BuildingAttributesForm : MonoBehaviour
                 string code = choiceArray[0].ToString();
                 string label = choiceArray[1].ToString();
                 
-                // Clean the label - remove the code prefix using the actual API code
-                // e.g., code="A", label="A- until 1859" → "until 1859"
+                // Clean the label - remove code prefix (e.g., "A - Until 1859" -> "Until 1859")
+                // Handles: "A - text", "B- text", "AB - text", "1 - text"
                 string displayLabel = label;
                 
-                if (!string.IsNullOrEmpty(code) && label.StartsWith(code))
+                // Strip any short alphanumeric prefix before first "-" separator
+                int dashIndex = label.IndexOf('-');
+                if (dashIndex > 0 && dashIndex <= 3)
                 {
-                    displayLabel = label.Substring(code.Length).TrimStart(' ', '-', '–').Trim();
+                    string prefix = label.Substring(0, dashIndex).Trim();
+                    bool isCode = prefix.Length <= 3 && System.Text.RegularExpressions.Regex.IsMatch(prefix, @"^[A-Za-z0-9]+$");
+                    if (isCode)
+                    {
+                        displayLabel = label.Substring(dashIndex + 1).Trim();
+                    }
                 }
                 
                 displayLabels.Add(displayLabel);
@@ -1456,8 +1457,8 @@ public class BuildingAttributesForm : MonoBehaviour
         string accessToken = energyManager != null ? energyManager.accessToken : "";
         string community = energyManager != null ? energyManager.communityId : communityId;
         
-        // Construct URL - NOTE: field_type=basic is only for GET, NOT for PUT
-        string url = $"{apiBaseUrl}/geospatial/buildings-energy/{UnityWebRequest.EscapeURL(currentGmlIdBasic)}/?community_id={community}";
+        // Construct URL with required field_type=basic parameter
+        string url = $"{apiBaseUrl}/geospatial/buildings-energy/{UnityWebRequest.EscapeURL(currentGmlIdBasic)}/?community_id={community}&field_type=basic";
         string jsonPayload = BuildJsonPayload();
         
         Debug.Log($"💾 PUT URL: {url}");
@@ -1483,22 +1484,7 @@ public class BuildingAttributesForm : MonoBehaviour
             {
                 Debug.Log("✅ Building data updated successfully!");
                 
-                // Refresh building data and colors immediately
-                if (energyManager != null && !string.IsNullOrEmpty(currentGmlId))
-                {
-                    Debug.Log($"🔄 Refreshing building cache and colors for: {currentGmlId}");
-                    yield return energyManager.RefreshSingleBuilding(currentGmlId);
-                    
-                    // Refresh the Building Information panel with recalculated values
-                    CesiumMetadataReader metadataReader = FindObjectOfType<CesiumMetadataReader>();
-                    if (metadataReader != null)
-                    {
-                        metadataReader.RefreshDisplayedBuildingInfo();
-                        Debug.Log("✅ Building Information panel refreshed with new values");
-                    }
-                }
-                
-                // Close form after refresh
+                // Close form (cache will be updated on next building click)
                 CloseForm();
             }
             else
