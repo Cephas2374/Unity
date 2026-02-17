@@ -462,7 +462,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
     private string NormalizeGmlId(string gmlId)
     {
         if (string.IsNullOrEmpty(gmlId)) return "";
-        return gmlId.Trim().Replace(" ", "").Replace("\t", "").Replace("\n", "");
+        return gmlId.Trim().Replace(" ", "").Replace("\t", "").Replace("\n", "").ToLowerInvariant();
     }
 
     /// <summary>

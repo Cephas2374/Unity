@@ -406,6 +406,7 @@ public class CesiumMetadataReader : MonoBehaviour
                     {
                         // Try to find gml:id from tileset metadata
                         string gmlId = ExtractGmlId(featureId, modelMetadata);
+                        if (gmlId != null) gmlId = gmlId.Trim();
                         string objectName = clickedObject.name;
                         
                         Debug.Log($"<color=cyan>🏢 Building clicked: gml:id from tileset = '{gmlId}'</color>");
@@ -441,88 +442,56 @@ public class CesiumMetadataReader : MonoBehaviour
                                 Debug.Log($"<color=green>✅ Step 4: buildingDataCache exists with {energyManager.buildingDataCache.Count} buildings</color>");
                                 
                                 Debug.Log($"<color=cyan>🔍 Step 5: Searching for building in cache...</color>");
-                                    // First, find the building in cache to get gmlIdBasic
-                                    BuildingData cachedBuilding = null;
-                                    
-                                    // Try exact match first
-                                    if (energyManager.buildingDataCache.ContainsKey(gmlId))
-                                    {
-                                        cachedBuilding = energyManager.buildingDataCache[gmlId];
-                                        Debug.Log($"<color=green>✅ Found building in cache: modified_gml_id = '{gmlId}'</color>");
-                                    }
-                                    else
-                                    {
-                                        // Try partial match
-                                        foreach (var kvp in energyManager.buildingDataCache)
-                                        {
-                                            if (kvp.Key.Contains(gmlId) || gmlId.Contains(kvp.Key) || 
-                                                kvp.Key.EndsWith(gmlId) || gmlId.EndsWith(kvp.Key))
-                                            {
-                                                cachedBuilding = kvp.Value;
-                                                Debug.Log($"<color=green>✅ Partial match: '{gmlId}' matched with '{kvp.Key}'</color>");
-                                                break;
-                                            }
-                                        }
-                                    }
+                                    // First, find the building in cache (case-insensitive)
+                                    string cacheKey;
+                                    BuildingData cachedBuilding = FindBuildingInCache(gmlId, out cacheKey);
                                     
                                     if (cachedBuilding == null)
                                     {
-                                        // Building not in cache - fetch by modified_gml_id from batch API first
-                                        // to get the correct gml_id, then open the form
-                                        Debug.LogWarning($"<color=yellow>⚠️ Step 6: Building '{gmlId}' not in cache - fetching from API by modified_gml_id...</color>");
-                                        
+                                        // Building not in data cache - fetch by modified_gml_id from API
+                                        Debug.LogWarning($"<color=yellow>⚠️ Building '{gmlId}' not in cache - fetching from API...</color>");
                                         StartCoroutine(FetchThenOpenForm(gmlId));
                                         return;
                                     }
-                                    Debug.Log($"<color=green>✅ Step 6: Building found in cache</color>");
                                     
-                                    // Get gmlIdBasic (no underscore) for API call
-                                    string gmlIdBasic = cachedBuilding.gmlIdBasic;
+                                    // Get gml_id from GmlIdCache (the correct API identifier)
+                                    // Use the matched cache key (correct casing) for lookup
+                                    string gmlIdBasic = null;
+                                    string lookupKey = cacheKey ?? gmlId;
+                                    if (energyManager.gmlIdCache.ContainsKey(lookupKey))
+                                    {
+                                        gmlIdBasic = energyManager.gmlIdCache[lookupKey];
+                                    }
+                                    else
+                                    {
+                                        gmlIdBasic = cachedBuilding.gmlIdBasic;
+                                    }
                                     
-                                    Debug.Log($"<color=cyan>📋 Step 7: gmlIdBasic = '{gmlIdBasic}' (null/empty: {string.IsNullOrEmpty(gmlIdBasic)})</color>");
+                                    Debug.Log($"<color=cyan>📋 modified_gml_id: '{gmlId}' → gml_id: '{gmlIdBasic}'</color>");
                                     
                                     if (string.IsNullOrEmpty(gmlIdBasic))
                                     {
-                                        Debug.LogError($"<color=red>❌ BLOCKED at Step 8: gmlIdBasic is null/empty for building '{gmlId}'</color>");
-                                        Debug.LogError($"<color=red>⚠️ Cannot open form without gmlIdBasic - API call requires it</color>");
-                                        Debug.LogError($"<color=yellow>💡 Solution: Run 'Hard Refresh Cache' to rebuild cache with gmlIdBasic field</color>");
+                                        Debug.LogError($"<color=red>❌ No gml_id mapping for '{gmlId}' - run 'Hard Refresh Cache'</color>");
                                         return;
                                     }
-                                    Debug.Log($"<color=green>✅ Step 8: gmlIdBasic is valid</color>");
                                     
-                                    Debug.Log($"<color=cyan>📡 Step 9: Starting API call to fetch basic attributes...</color>");
-                                    Debug.Log($"<color=yellow>   🌐 API will use gmlIdBasic: '{gmlIdBasic}'</color>");
-                                    Debug.Log($"<color=yellow>   🌐 Endpoint: GET /geospatial/buildings-energy/{gmlIdBasic}/?field_type=basic</color>");
-                                    
-                                    // Always fetch fresh attributes from API
+                                    // Fetch basic attributes using gml_id and open form
                                     StartCoroutine(energyManager.FetchBasicAttributes(
                                         gmlIdBasic,
-                                        // Success callback
                                         (attributesData) => 
                                         {
-                                            Debug.Log($"<color=green>✅ Step 10: Attributes fetched successfully from API</color>");
-                                            Debug.Log($"<color=yellow>   📦 API returned data for gml_id: '{attributesData["gml_id"]}'</color>");
-                                            Debug.Log($"<color=yellow>   📦 API returned data for modified_gml_id: '{attributesData["modified_gml_id"]}'</color>");
-                                            Debug.Log($"<color=magenta>🔧 Step 11: Calling OpenFormWithApiData()...</color>");
-                                            Debug.Log($"<color=yellow>   ➡️ Passing tileset gmlId: '{gmlId}'</color>");
-                                            Debug.Log($"<color=yellow>   ➡️ Passing cachedBuilding.gmlId: '{cachedBuilding.gmlId}'</color>");
-                                            
                                             try
                                             {
                                                 attributesForm.ShowBuildingForm(gmlId, cachedBuilding);
-                                                Debug.Log($"<color=green>✅ Step 12: ShowBuildingForm() completed</color>");
                                             }
                                             catch (System.Exception ex)
                                             {
-                                                Debug.LogError($"<color=red>❌ BLOCKED at Step 11: Exception in OpenFormWithApiData(): {ex.Message}</color>");
-                                                Debug.LogError($"<color=red>Stack: {ex.StackTrace}</color>");
+                                                Debug.LogError($"<color=red>❌ ShowBuildingForm exception: {ex.Message}\n{ex.StackTrace}</color>");
                                             }
                                         },
-                                        // Error callback
                                         (error) =>
                                         {
-                                            Debug.LogError($"<color=red>❌ BLOCKED at Step 10: Failed to fetch attributes: {error}</color>");
-                                            Debug.LogError($"<color=red>⚠️ Cannot open form without API data</color>");
+                                            Debug.LogError($"<color=red>❌ Failed to fetch attributes for '{gmlIdBasic}': {error}</color>");
                                         }
                                     ));
                             }
@@ -661,10 +630,11 @@ public class CesiumMetadataReader : MonoBehaviour
         // Use RefreshSingleBuilding to fetch by modified_gml_id and populate cache
         yield return energyManager.RefreshSingleBuilding(gmlId);
         
-        // Check if it's now in cache
-        if (energyManager.buildingDataCache.ContainsKey(gmlId))
+        // Check if it's now in cache (case-insensitive)
+        string fetchedKey = null;
+        BuildingData cachedBuilding = FindBuildingInCache(gmlId, out fetchedKey);
+        if (cachedBuilding != null)
         {
-            BuildingData cachedBuilding = energyManager.buildingDataCache[gmlId];
             Debug.Log($"<color=green>✅ Building fetched and cached. gml_id = '{cachedBuilding.gmlIdBasic}'</color>");
             
             string gmlIdBasic = cachedBuilding.gmlIdBasic;
@@ -712,30 +682,59 @@ public class CesiumMetadataReader : MonoBehaviour
             {
                 var metadataValues = propertyTable.GetMetadataValuesForFeature(featureId);
                 
-                // DEBUG: Log all available properties for first few features to see ID format
-                if (featureId < 3)
+                // Always log all property keys and values for clicked building
+                Debug.Log($"<color=magenta>🔍 Feature {featureId} has {metadataValues.Count} properties: [{string.Join(", ", metadataValues.Keys)}]</color>");
+                foreach (var kvp in metadataValues)
                 {
-                    Debug.Log($"<color=magenta>🔍 DEBUG Feature {featureId} properties: {string.Join(", ", metadataValues.Keys)}</color>");
-                    foreach (var kvp in metadataValues)
+                    // Try multiple extraction methods since value might not be stored as string
+                    string val = kvp.Value.GetString("");
+                    if (string.IsNullOrEmpty(val))
                     {
-                        string val = kvp.Value.GetString("");
-                        if (!string.IsNullOrEmpty(val))
+                        // Try as other types
+                        double dVal = kvp.Value.GetDouble(double.NaN);
+                        if (!double.IsNaN(dVal))
+                            val = $"(double){dVal}";
+                        else
                         {
-                            Debug.Log($"<color=magenta>   {kvp.Key} = '{val}'</color>");
+                            Int64 iVal = kvp.Value.GetInt64(Int64.MinValue);
+                            if (iVal != Int64.MinValue)
+                                val = $"(int64){iVal}";
+                            else
+                            {
+                                bool bVal = kvp.Value.GetBoolean(false);
+                                val = $"(other/empty) bool={bVal}";
+                            }
                         }
                     }
+                    Debug.Log($"<color=magenta>   {kvp.Key} = '{val}'</color>");
                 }
                 
                 foreach (string key in candidateKeys)
                 {
                     if (metadataValues.ContainsKey(key))
                     {
-                        string value = metadataValues[key].GetString("");
+                        CesiumMetadataValue metaVal = metadataValues[key];
+                        
+                        // Try GetString first
+                        string value = metaVal.GetString("");
                         if (!string.IsNullOrEmpty(value))
                         {
-                            Debug.Log($"<color=cyan>Found gml_id from property '{key}': '{value}'</color>");
+                            Debug.Log($"<color=cyan>Found gml_id from property '{key}' (string): '{value}'</color>");
                             return value;
                         }
+                        
+                        // If GetString returned empty, try GetObjectAsString or ToString
+                        // CesiumMetadataValue might store it in a non-string format
+                        try
+                        {
+                            string objStr = metaVal.ToString();
+                            if (!string.IsNullOrEmpty(objStr) && objStr != "CesiumForUnity.CesiumMetadataValue")
+                            {
+                                Debug.Log($"<color=cyan>Found gml_id from property '{key}' (ToString): '{objStr}'</color>");
+                                return objStr;
+                            }
+                        }
+                        catch (System.Exception) { }
                     }
                 }
             }
@@ -744,6 +743,36 @@ public class CesiumMetadataReader : MonoBehaviour
         return null;
     }
     
+    /// <summary>
+    /// Case-insensitive lookup in buildingDataCache.
+    /// Tileset metadata may use different casing than the API (e.g., 'wid6' vs 'wiD6').
+    /// </summary>
+    private BuildingData FindBuildingInCache(string gmlId, out string matchedKey)
+    {
+        matchedKey = null;
+        if (string.IsNullOrEmpty(gmlId)) return null;
+        
+        // Try exact match first (fast)
+        if (energyManager.buildingDataCache.ContainsKey(gmlId))
+        {
+            matchedKey = gmlId;
+            return energyManager.buildingDataCache[gmlId];
+        }
+        
+        // Case-insensitive match (tileset vs API casing mismatch)
+        foreach (var kvp in energyManager.buildingDataCache)
+        {
+            if (string.Equals(kvp.Key, gmlId, System.StringComparison.OrdinalIgnoreCase))
+            {
+                matchedKey = kvp.Key;
+                Debug.Log($"<color=green>✅ Case-insensitive match: tileset '{gmlId}' → cache '{kvp.Key}'</color>");
+                return kvp.Value;
+            }
+        }
+        
+        return null;
+    }
+
     /// <summary>
     /// Display building data directly from cache (no API call, no authentication)
     /// </summary>
@@ -755,54 +784,30 @@ public class CesiumMetadataReader : MonoBehaviour
         metadataPanel.SetActive(true);
         isDisplaying = true;
         
-        // Try exact match first
-        if (energyManager.buildingDataCache.ContainsKey(gmlId))
+        // Case-insensitive lookup (tileset may use different casing than API)
+        string matchedKey;
+        BuildingData data = FindBuildingInCache(gmlId, out matchedKey);
+        
+        if (data != null)
         {
-            BuildingData data = energyManager.buildingDataCache[gmlId];
-            Debug.Log($"<color=green>✅ Exact match found in cache for '{gmlId}'</color>");
             DisplayBuildingData(data, objectName, featureId);
         }
         else
         {
-            // Try to find a partial match
-            Debug.Log($"<color=yellow>⚠️ No exact match for '{gmlId}', trying variations...</color>");
+            // Building not in the energy database - show clean minimal info
+            Debug.Log($"<color=yellow>⚠️ No energy data for gml:id '{gmlId}' (cache has {energyManager.buildingDataCache.Count} buildings)</color>");
             
-            BuildingData foundData = null;
-            string matchedKey = null;
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine($"<b><size=40>Building Information</size></b>");
+            sb.AppendLine();
+            sb.AppendLine($"<size=26><b>Object:</b> {objectName}</size>");
+            sb.AppendLine($"<size=26><b>Feature ID:</b> {featureId}</size>");
+            sb.AppendLine();
+            sb.AppendLine($"<size=26><b>GML ID:</b> {gmlId}</size>");
+            sb.AppendLine();
+            sb.AppendLine("<size=26><color=#AAAAAA>No energy data available for this building.</color></size>");
             
-            foreach (var kvp in energyManager.buildingDataCache)
-            {
-                if (kvp.Key.Contains(gmlId) || gmlId.Contains(kvp.Key) || 
-                    kvp.Key.EndsWith(gmlId) || gmlId.EndsWith(kvp.Key))
-                {
-                    foundData = kvp.Value;
-                    matchedKey = kvp.Key;
-                    Debug.Log($"<color=green>✅ Partial match found: '{gmlId}' matched with cache key '{matchedKey}'</color>");
-                    break;
-                }
-            }
-            
-            if (foundData != null)
-            {
-                DisplayBuildingData(foundData, objectName, featureId);
-            }
-            else
-            {
-                // Building not in the energy database - show clean minimal info
-                Debug.Log($"<color=yellow>⚠️ No energy data for gml:id '{gmlId}' (cache has {energyManager.buildingDataCache.Count} buildings)</color>");
-                
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine($"<b><size=40>Building Information</size></b>");
-                sb.AppendLine();
-                sb.AppendLine($"<size=26><b>Object:</b> {objectName}</size>");
-                sb.AppendLine($"<size=26><b>Feature ID:</b> {featureId}</size>");
-                sb.AppendLine();
-                sb.AppendLine($"<size=26><b>GML ID:</b> {gmlId}</size>");
-                sb.AppendLine();
-                sb.AppendLine("<size=26><color=#AAAAAA>No energy data available for this building.</color></size>");
-                
-                metadataText.text = sb.ToString();
-            }
+            metadataText.text = sb.ToString();
         }
         
         hideTimer = displayDuration;
@@ -870,11 +875,15 @@ public class CesiumMetadataReader : MonoBehaviour
         sb.AppendLine($"<size=26><b>Feature ID:</b> {featureId}</size>");
         sb.AppendLine();
         
-        // Energy color indicator from cache
+        // Energy color indicator from cache - try both modified_gml_id and gml_id
         Color energyColor = Color.gray;
         if (energyManager.buildingColorCache.ContainsKey(data.gmlId))
         {
             energyColor = energyManager.buildingColorCache[data.gmlId];
+        }
+        else if (!string.IsNullOrEmpty(data.gmlIdBasic) && energyManager.buildingColorCache.ContainsKey(data.gmlIdBasic))
+        {
+            energyColor = energyManager.buildingColorCache[data.gmlIdBasic];
         }
         string colorHex = ColorUtility.ToHtmlStringRGB(energyColor);
         
