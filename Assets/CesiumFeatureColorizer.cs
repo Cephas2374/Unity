@@ -61,7 +61,9 @@ public class CesiumFeatureColorizer : MonoBehaviour
     private HashSet<GameObject> processedTiles = new HashSet<GameObject>();
     private int totalBuildingsColored = 0;
     private int totalVerticesColored = 0;
+    private int unColoredBuildingsCount = 0; // Track buildings that couldn't be colored
     private HashSet<string> uniqueBuildingsInTileset = new HashSet<string>();
+    private HashSet<string> unmatchedGmlIds = new HashSet<string>(); // For aggressive diagnostics
     private Dictionary<string, string> idMatchCache = new Dictionary<string, string>(); // gmlId -> matched API key
     private Dictionary<string, string> reverseGmlIdCache = new Dictionary<string, string>(); // gml_id -> modified_gml_id
 
@@ -380,8 +382,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
             return directColor;
         }
 
-        // Try gmlIdCache mapping (modified_gml_id ↔ gml_id) using O(1) lookups
-        // Case 1: gmlId is a gml_id → look up the corresponding modified_gml_id
+        // Try gmlIdCache mappings with BOTH directions (O(1) lookups)
         if (reverseGmlIdCache.TryGetValue(gmlId, out string modifiedId) && 
             energyManager.buildingColorCache.TryGetValue(modifiedId, out Color mappedColor))
         {
@@ -389,7 +390,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
             featureColorCache[featureId] = mappedColor;
             return mappedColor;
         }
-        // Case 2: gmlId is a modified_gml_id → look up the corresponding gml_id
+        
         if (energyManager.gmlIdCache.TryGetValue(gmlId, out string basicId) && 
             energyManager.buildingColorCache.TryGetValue(basicId, out Color mappedColor2))
         {
@@ -406,11 +407,36 @@ public class CesiumFeatureColorizer : MonoBehaviour
             return cachedMatchColor;
         }
 
-        // Try normalized or fallback match
-        Color? foundColor = FindColorWithCaching(gmlId);
-        Color result = foundColor.HasValue ? foundColor.Value : Color.white;
-        featureColorCache[featureId] = result;
-        return result;
+        // AGGRESSIVE: Try raw (case-sensitive) key match in cache without normalization
+        foreach (var cacheKey in energyManager.buildingColorCache.Keys)
+        {
+            if (cacheKey == gmlId) // Exact match
+            {
+                idMatchCache[gmlId] = cacheKey;
+                featureColorCache[featureId] = energyManager.buildingColorCache[cacheKey];
+                return energyManager.buildingColorCache[cacheKey];
+            }
+        }
+
+        // AGGRESSIVE: Try substring matching - gmlId might be suffix or prefix
+        foreach (var cacheKey in energyManager.buildingColorCache.Keys)
+        {
+            // Check if one is contained in the other (common format mismatch)
+            if (gmlId.Contains(cacheKey) || cacheKey.Contains(gmlId))
+            {
+                idMatchCache[gmlId] = cacheKey;
+                featureColorCache[featureId] = energyManager.buildingColorCache[cacheKey];
+                if (debugMode)
+                    Debug.Log($"<color=yellow>⚠️ Substring match: '{gmlId}' → '{cacheKey}'</color>");
+                return energyManager.buildingColorCache[cacheKey];
+            }
+        }
+
+        // No match found - return white
+        unmatchedGmlIds.Add(gmlId);
+        unColoredBuildingsCount++;
+        featureColorCache[featureId] = Color.white;
+        return Color.white;
     }
 
     /// <summary>
@@ -512,7 +538,9 @@ public class CesiumFeatureColorizer : MonoBehaviour
         processedTiles.Clear();
         totalBuildingsColored = 0;
         totalVerticesColored = 0;
+        unColoredBuildingsCount = 0;
         uniqueBuildingsInTileset.Clear();
+        unmatchedGmlIds.Clear();
         idMatchCache.Clear();
         
         // Build reverse gmlIdCache lookup (gml_id → modified_gml_id) for fast ID matching
@@ -842,5 +870,140 @@ public class CesiumFeatureColorizer : MonoBehaviour
     public HashSet<string> GetUniqueTilesetBuildingIds()
     {
         return new HashSet<string>(uniqueBuildingsInTileset);
+    }
+
+    /// <summary>
+    /// DIAGNOSTIC: Find all white (unmatched) buildings and show attempted cache matches
+    /// Returns list of (tileGmlId, bestCacheMatch, matchReason) tuples
+    /// </summary>
+    public List<(string tileGmlId, string bestCacheMatch, string matchReason)> DiagnosticFindUnmatchedBuildings(int maxResults = 20)
+    {
+        if (energyManager == null) 
+        {
+            Debug.LogError("BuildingEnergyManager not found!");
+            return new List<(string, string, string)>();
+        }
+
+        var results = new List<(string, string, string)>();
+        
+        foreach (var tileGmlId in uniqueBuildingsInTileset)
+        {
+            // Skip if already matched
+            if (energyManager.buildingColorCache.ContainsKey(tileGmlId) || idMatchCache.ContainsKey(tileGmlId))
+                continue;
+
+            // Try to find best cache match
+            string bestMatch = null;
+            string matchReason = "NO_MATCH";
+
+            // Try case-insensitive direct match
+            foreach (var cacheKey in energyManager.buildingColorCache.Keys)
+            {
+                if (string.Equals(tileGmlId, cacheKey, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    bestMatch = cacheKey;
+                    matchReason = "CASE_INSENSITIVE_MATCH";
+                    break;
+                }
+            }
+
+            // Try substring matching
+            if (bestMatch == null)
+            {
+                foreach (var cacheKey in energyManager.buildingColorCache.Keys)
+                {
+                    if (tileGmlId.Contains(cacheKey) || cacheKey.Contains(tileGmlId))
+                    {
+                        bestMatch = cacheKey;
+                        matchReason = "SUBSTRING_MATCH";
+                        break;
+                    }
+                }
+            }
+
+            // Try reverse gmlIdCache lookup
+            if (bestMatch == null && reverseGmlIdCache.TryGetValue(tileGmlId, out string mappedId))
+            {
+                if (energyManager.buildingColorCache.ContainsKey(mappedId))
+                {
+                    bestMatch = mappedId;
+                    matchReason = "REVERSE_GMLID_LOOKUP";
+                }
+            }
+
+            // Try gmlIdCache forward lookup
+            if (bestMatch == null && energyManager.gmlIdCache.TryGetValue(tileGmlId, out string basicId))
+            {
+                if (energyManager.buildingColorCache.ContainsKey(basicId))
+                {
+                    bestMatch = basicId;
+                    matchReason = "GMLID_CACHE_FORWARD";
+                }
+            }
+
+            results.Add((tileGmlId, bestMatch ?? "NO_CACHE_MATCH", matchReason));
+
+            if (results.Count >= maxResults)
+                break;
+        }
+
+        Debug.Log($"[DiagnosticFindUnmatchedBuildings] Found {results.Count} unmatched buildings (showing first {maxResults})");
+        foreach (var (tileId, match, reason) in results)
+        {
+            Debug.Log($"  Tile: {tileId} | BestMatch: {match} | Reason: {reason}");
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// DIAGNOSTIC: Force-apply colors to all unmatched buildings from cache using aggressive matching
+    /// Should only be called after verifying cache is properly populated
+    /// </summary>
+    public int ForceColorAllUnmatchedBuildings()
+    {
+        if (energyManager == null) return 0;
+
+        int recolored = 0;
+        var toRecolor = new Dictionary<string, Color>();
+
+        foreach (var tileGmlId in uniqueBuildingsInTileset)
+        {
+            // Skip already matched
+            if (energyManager.buildingColorCache.ContainsKey(tileGmlId) || idMatchCache.ContainsKey(tileGmlId))
+                continue;
+
+            Color matchedColor = Color.white;
+            bool found = false;
+
+            // Aggressive matching strategy
+            foreach (var cacheKey in energyManager.buildingColorCache.Keys)
+            {
+                if (string.Equals(tileGmlId, cacheKey, System.StringComparison.OrdinalIgnoreCase) ||
+                    tileGmlId.Contains(cacheKey) || cacheKey.Contains(tileGmlId))
+                {
+                    matchedColor = energyManager.buildingColorCache[cacheKey];
+                    idMatchCache[tileGmlId] = cacheKey;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found)
+            {
+                toRecolor[tileGmlId] = matchedColor;
+                recolored++;
+            }
+        }
+
+        Debug.Log($"[ForceColorAllUnmatchedBuildings] Force-applying colors to {recolored} previously uncolored buildings");
+
+        // Apply the colors via RecolorSingleBuilding
+        foreach (var kvp in toRecolor)
+        {
+            RecolorSingleBuilding(kvp.Key, kvp.Value);
+        }
+
+        return recolored;
     }
 }

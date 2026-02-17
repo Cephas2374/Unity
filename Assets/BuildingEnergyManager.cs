@@ -71,12 +71,12 @@ public class BuildingEnergyManager : MonoBehaviour
     [Tooltip("REAL-TIME MODE: Disable persistent cache, always fetch fresh data, poll for updates every interval")]
     public bool realTimeMode = false;
     
-    [Tooltip("Enable change detection for external edits (polling)")]
+    [Tooltip("Enable change detection for external edits (polling) - ALWAYS ENABLED")]
     public bool enableChangeDetection = true;
     
-    [Tooltip("How often to check for external changes (seconds) - lower = more real-time but more API calls")]
+    [Tooltip("How often to check for external changes (seconds) - 5 seconds for real-time responsiveness")]
     [Range(5f, 3600f)]
-    public float changeCheckInterval = 30f; // Default: 30 seconds (more aggressive for real-time)
+    public float changeCheckInterval = 5f; // 5 seconds for real-time updates
     
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
@@ -2848,6 +2848,51 @@ public class BuildingEnergyManager : MonoBehaviour
             { "withoutColor", buildingsWithoutColor },
             { "inCache", buildingDataCache.Count }
         };
+    }
+
+    [ContextMenu("DIAGNOSTIC: Find White Buildings")]
+    public void ContextMenu_FindWhiteBuildings()
+    {
+        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        if (colorizer == null)
+        {
+            Debug.LogError("CesiumFeatureColorizer not found in scene!");
+            return;
+        }
+
+        var unmatchedBuildings = colorizer.DiagnosticFindUnmatchedBuildings(30);
+        Debug.Log($"\n<color=red>{'='*50} WHITE BUILDINGS DIAGNOSTIC {'='*50}</color>");
+        Debug.Log($"<color=yellow>Found {unmatchedBuildings.Count} unmatched buildings in tileset</color>");
+        Debug.Log($"<color=cyan>Total API cache entries: {buildingColorCache.Count}</color>\n");
+
+        if (unmatchedBuildings.Count > 0)
+        {
+            Debug.Log("<color=orange>First 30 unmatched buildings and best cache matches:</color>");
+            for (int i = 0; i < unmatchedBuildings.Count && i < 30; i++)
+            {
+                var (tileId, match, reason) = unmatchedBuildings[i];
+                if (match != "NO_CACHE_MATCH")
+                    Debug.Log($"  {i+1}. Tile: <color=yellow>{tileId}</color> → Cache: <color=green>{match}</color> ({reason})");
+                else
+                    Debug.Log($"  {i+1}. Tile: <color=yellow>{tileId}</color> → <color=red>NO MATCH FOUND</color>");
+            }
+        }
+        Debug.Log($"<color=red>{'='*80}</color>\n");
+    }
+
+    [ContextMenu("EMERGENCY: Force Color All White Buildings")]
+    public void ContextMenu_ForceColorWhiteBuildings()
+    {
+        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        if (colorizer == null)
+        {
+            Debug.LogError("CesiumFeatureColorizer not found in scene!");
+            return;
+        }
+
+        int recolored = colorizer.ForceColorAllUnmatchedBuildings();
+        Debug.Log($"<color=green>✅ Force-colored {recolored} previously white buildings using aggressive matching!</color>");
+        Debug.Log($"<color=cyan>💡 Check the main console log for detailed matching diagnostics</color>");
     }
 }
 

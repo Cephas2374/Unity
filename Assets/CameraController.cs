@@ -27,7 +27,7 @@ public class CameraController : MonoBehaviour
     public bool disableOnXR = true;
     
     [Header("Desktop Settings")]
-    [Tooltip("Enable dynamic camera movement on desktop (should be TRUE for desktop use)")]
+    [Tooltip("Desktop camera controls - ALWAYS ENABLED for dynamic camera")]
     public bool enableDesktopControls = true;
     
     private bool rightMouseDown = false;
@@ -52,12 +52,6 @@ public class CameraController : MonoBehaviour
         if (isXRDevice && disableOnXR)
         {
             Debug.Log("<color=red>CameraController: XR device detected - DISABLING desktop camera controls</color>");
-            this.enabled = false;
-        }
-        else if (!enableDesktopControls)
-        {
-            Debug.LogWarning("<color=yellow>⚠️ CameraController: Desktop controls are DISABLED in Inspector!</color>");
-            Debug.LogWarning("<color=yellow>💡 Set 'Enable Desktop Controls' to TRUE to enable camera movement</color>");
             this.enabled = false;
         }
         else

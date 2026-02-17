@@ -52,6 +52,10 @@ public class BuildingAttributesForm : MonoBehaviour
     private Dropdown roofYearAfterDropdown;
     private Dropdown ceilingYearAfterDropdown;
     
+    // Button references for proper cleanup to prevent GC handle errors
+    private Button closeButton;
+    private Button saveButton;
+    
     // Mapping dictionaries: Display Label -> API Code (like UE version)
     private Dictionary<string, string> constructionYearChoiceMap = new Dictionary<string, string>();
     private Dictionary<string, string> roofStoreyChoiceMap = new Dictionary<string, string>();
@@ -261,8 +265,8 @@ public class BuildingAttributesForm : MonoBehaviour
         // Close Button
         GameObject closeBtn = CreateButton(titleBar.transform, "X", new Vector2(40, 40), 
             new Vector2(-10, -10), new Vector2(1, 1), new Vector2(1, 1));
-        Button closeBtnComponent = closeBtn.GetComponent<Button>();
-        closeBtnComponent.onClick.AddListener(() => {
+        closeButton = closeBtn.GetComponent<Button>();
+        closeButton.onClick.AddListener(() => {
             Debug.Log("🚪 Close button clicked!");
             CloseForm();
         });
@@ -359,8 +363,8 @@ public class BuildingAttributesForm : MonoBehaviour
         // === SAVE BUTTON ===
         GameObject saveBtn = CreateButton(formPanel.transform, "Save Changes", new Vector2(200, 50),
             new Vector2(0, 10), new Vector2(0.5f, 0), new Vector2(0.5f, 0));
-        Button saveBtnComponent = saveBtn.GetComponent<Button>();
-        saveBtnComponent.onClick.AddListener(() => {
+        saveButton = saveBtn.GetComponent<Button>();
+        saveButton.onClick.AddListener(() => {
             Debug.Log("💾 Save button clicked!");
             SaveBuildingInformation();
         });
@@ -1102,10 +1106,10 @@ public class BuildingAttributesForm : MonoBehaviour
             return;
         }
         
-        // Clear existing options and mappings
+        // Clear existing dropdown UI options (but NOT the shared choice maps,
+        // since multiple dropdowns share the same map and clearing would wipe
+        // entries needed by previously-processed dropdowns)
         targetDropdown.ClearOptions();
-        choiceMap.Clear();
-        reverseMap.Clear();
         
         List<string> displayLabels = new List<string>();
         
@@ -1798,6 +1802,20 @@ public class BuildingAttributesForm : MonoBehaviour
 
     void DestroyForm()
     {
+        // ⚠️ CRITICAL: Remove all event listeners BEFORE destroying GameObjects
+        // This prevents "Release of invalid GC handle" errors on domain reload
+        if (closeButton != null)
+        {
+            closeButton.onClick.RemoveAllListeners();
+            closeButton = null;
+        }
+        
+        if (saveButton != null)
+        {
+            saveButton.onClick.RemoveAllListeners();
+            saveButton = null;
+        }
+        
         if (modalBlocker != null)
         {
             Destroy(modalBlocker);
