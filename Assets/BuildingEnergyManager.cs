@@ -67,12 +67,16 @@ public class BuildingEnergyManager : MonoBehaviour
     [Tooltip("Cache file path (auto-generated)")]
     [SerializeField] private string cacheFilePath = "";
     
-    [Tooltip("Enable change detection for external edits")]
+    [Header("Real-Time Updates")]
+    [Tooltip("REAL-TIME MODE: Disable persistent cache, always fetch fresh data, poll for updates every interval")]
+    public bool realTimeMode = false;
+    
+    [Tooltip("Enable change detection for external edits (polling)")]
     public bool enableChangeDetection = true;
     
-    [Tooltip("How often to check for external changes (seconds) - set high to reduce API calls")]
-    [Range(30f, 3600f)]
-    public float changeCheckInterval = 300f; // Default: 5 minutes
+    [Tooltip("How often to check for external changes (seconds) - lower = more real-time but more API calls")]
+    [Range(5f, 3600f)]
+    public float changeCheckInterval = 30f; // Default: 30 seconds (more aggressive for real-time)
     
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
@@ -87,6 +91,8 @@ public class BuildingEnergyManager : MonoBehaviour
     private Cesium3DTileset buildingsTileset;
     private float changeCheckTimer = 0f;
     private HashSet<string> modifiedBuildingIds = new HashSet<string>(); // Track buildings modified in this session
+    private Dictionary<string, DateTime> buildingLastUpdated = new Dictionary<string, DateTime>(); // Track update timestamps
+    private bool isPollingForUpdates = false; // Prevent concurrent polling
     
     [Header("Cache Management")]
     [Tooltip("Last cache update timestamp")]
@@ -158,8 +164,9 @@ public class BuildingEnergyManager : MonoBehaviour
         
         Debug.Log($"<color=cyan>🚀 BuildingEnergyManager: Smart Caching System Initialized</color>");
         Debug.Log($"<color=cyan>   • Community: {communityId}</color>");
-        Debug.Log($"<color=cyan>   • Persistent Cache: {(enablePersistentCache ? "ENABLED" : "DISABLED")}</color>");
-        Debug.Log($"<color=cyan>   • Change Detection: {(enableChangeDetection ? "ENABLED" : "DISABLED")}</color>");
+        Debug.Log($"<color=cyan>   • Real-Time Mode: {(realTimeMode ? "ENABLED (always fresh data)" : "DISABLED (uses cache)")}</color>");
+        Debug.Log($"<color=cyan>   • Persistent Cache: {(enablePersistentCache && !realTimeMode ? "ENABLED" : "DISABLED")}</color>");
+        Debug.Log($"<color=cyan>   • Change Detection: {(enableChangeDetection ? $"ENABLED (every {changeCheckInterval}s)" : "DISABLED")}</color>");
         
         FindBuildingsTileset();
         
@@ -171,8 +178,9 @@ public class BuildingEnergyManager : MonoBehaviour
         }
         
         // Try to load RAW JSON from persistent cache first (FAST - no parsing during load)
+        // SKIP CACHE if realTimeMode is enabled
         bool cacheLoaded = false;
-        if (enablePersistentCache)
+        if (enablePersistentCache && !realTimeMode)
         {
             string rawCachePath = cacheFilePath.Replace(".json", "_raw.json");
             if (System.IO.File.Exists(rawCachePath))
@@ -274,6 +282,10 @@ public class BuildingEnergyManager : MonoBehaviour
     /// </summary>
     public bool SaveRawJsonToDisk(string rawJson)
     {
+        // Skip saving in real-time mode (always fetch fresh)
+        if (realTimeMode)
+            return true;
+        
         if (!enablePersistentCache)
             return false;
             
@@ -577,11 +589,36 @@ public class BuildingEnergyManager : MonoBehaviour
         
         // Reset authentication (will re-authenticate if needed)
         isAuthenticating = false;
+        isPollingForUpdates = false;
         
         Debug.Log("<color=cyan>⏳ Starting fresh download from API...</color>");
         
         // Re-initialize immediately
         StartCoroutine(InitializeManager());
+    }
+    
+    /// <summary>
+    /// Force an immediate poll for updates (bypasses timer)
+    /// </summary>
+    [ContextMenu("Force Poll for Updates Now")]
+    public void ForcePollNow()
+    {
+        if (!enableChangeDetection)
+        {
+            Debug.LogWarning("<color=yellow>⚠️ Change detection is disabled. Enable it in Inspector first.</color>");
+            return;
+        }
+        
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            Debug.LogWarning("<color=yellow>⚠️ Not authenticated. Run 'Hard Refresh Cache' first.</color>");
+            return;
+        }
+        
+        Debug.Log("<color=cyan>🔍 Forcing immediate update check...</color>");
+        changeCheckTimer = 0f; // Reset timer
+        StopCoroutine(CheckForExternalChanges());
+        StartCoroutine(CheckForExternalChanges());
     }
     
     /// <summary>
@@ -769,25 +806,118 @@ public class BuildingEnergyManager : MonoBehaviour
     }
     
     /// <summary>
-    /// Check for buildings modified by external systems (polls last_modified timestamps)
-    /// Only fetches buildings that have changed since last check
+    /// Check for buildings modified by external systems - polls API for changes
+    /// Downloads fresh data and compares with cache to detect updates
     /// </summary>
     private IEnumerator CheckForExternalChanges()
     {
-        if (!enableChangeDetection || string.IsNullOrEmpty(accessToken))
+        if (!enableChangeDetection || string.IsNullOrEmpty(accessToken) || isPollingForUpdates)
             yield break;
             
-        Debug.Log("<color=cyan>🔍 Checking for external changes...</color>");
+        isPollingForUpdates = true;
         
-        // TODO: Implement last_modified timestamp check with API
-        // For now, this is a placeholder that would check:
-        // GET /api/buildings-energy/changed/?community_id={id}&since={lastCacheUpdate}
-        // Response: [{"modified_gml_id": "...", "last_modified": "..."}, ...]
+        Debug.Log("<color=cyan>🔍 Polling API for updated building data...</color>");
         
-        // When implemented, for each changed building:
-        // yield return UpdateSingleBuilding(changedGmlId);
+        // Poll API with aggressive cache-busting
+        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string url = $"{apiBaseUrl}/geospatial/buildings-energy/?community_id={communityId}&format=json&include_colors=true&energy_type=total&time_period=annual&classification=co2&color_scheme=co2_classes&_t={timestamp}";
         
-        yield return null;
+        using (UnityWebRequest request = UnityWebRequest.Get(url))
+        {
+            request.timeout = 30;
+            request.SetRequestHeader("Authorization", $"Bearer {accessToken}");
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+            request.SetRequestHeader("Pragma", "no-cache");
+            request.SetRequestHeader("Expires", "0");
+            
+            yield return request.SendWebRequest();
+            
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                try
+                {
+                    JArray freshData = JArray.Parse(request.downloadHandler.text);
+                    int updatedCount = 0;
+                    int newCount = 0;
+                    
+                    // Compare with cached data and update changes
+                    foreach (JObject building in freshData)
+                    {
+                        string gmlId = building["modified_gml_id"]?.ToString();
+                        if (string.IsNullOrEmpty(gmlId)) continue;
+                        
+                        // Check if building data has changed
+                        bool hasChanged = false;
+                        
+                        if (buildingDataCache.ContainsKey(gmlId))
+                        {
+                            // Check if energy data changed (simple comparison)
+                            var existingData = buildingDataCache[gmlId];
+                            var energyResult = building["energy_result"];
+                            
+                            if (energyResult != null)
+                            {
+                                int? newEnergyDemand = energyResult["end"]?["result"]?["energy_demand_specific"]?["value"]?.ToObject<int?>();
+                                if (newEnergyDemand.HasValue && newEnergyDemand.Value != existingData.energyDemandAfter)
+                                {
+                                    hasChanged = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            hasChanged = true;
+                            newCount++;
+                        }
+                        
+                        if (hasChanged)
+                        {
+                            // Update building in cache
+                            BuildingData updatedData = ParseSingleBuilding(building);
+                            if (updatedData != null)
+                            {
+                                buildingDataCache[gmlId] = updatedData;
+                                buildingLastUpdated[gmlId] = DateTime.Now;
+                                updatedCount++;
+                                
+                                // Update visual
+                                if (buildingColorCache.ContainsKey(gmlId))
+                                {
+                                    UpdateBuildingVisual(gmlId);
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (updatedCount > 0 || newCount > 0)
+                    {
+                        Debug.Log($"<color=green>✅ Detected changes: {updatedCount} updated, {newCount} new buildings</color>");
+                        
+                        // Update cache file if persistent cache is enabled
+                        if (enablePersistentCache && !realTimeMode)
+                        {
+                            SaveRawJsonToDisk(request.downloadHandler.text);
+                        }
+                    }
+                    else
+                    {
+                        Debug.Log($"<color=gray>ℹ️ No changes detected since last check</color>");
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"<color=red>❌ Failed to check for changes: {e.Message}</color>");
+                }
+            }
+            else if (request.responseCode == 401)
+            {
+                Debug.LogWarning("<color=yellow>⚠️ Authentication expired, re-authenticating...</color>");
+                yield return Authenticate();
+            }
+        }
+        
+        isPollingForUpdates = false;
     }
     
     // ========================================
