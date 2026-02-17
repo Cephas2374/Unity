@@ -610,6 +610,18 @@ public class BuildingEnergyManager : MonoBehaviour
     {
         Debug.Log("<color=yellow>⏳ Waiting for Cesium tiles to load before coloring...</color>");
         
+        // Quick check if tiles are already loaded (happens in Play mode when cache loads fast)
+        if (colorizer.tileset != null)
+        {
+            CesiumForUnity.CesiumPrimitiveFeatures[] quickCheck = colorizer.tileset.GetComponentsInChildren<CesiumForUnity.CesiumPrimitiveFeatures>();
+            if (quickCheck.Length > 0)
+            {
+                Debug.Log($"<color=green>✅ Tiles already loaded! Found {quickCheck.Length} tiles, coloring immediately...</color>");
+                yield return colorizer.RecolorAllTilesWithLogging();
+                yield break;
+            }
+        }
+        
         // Wait a few frames for tiles to start loading
         yield return new WaitForSeconds(3f);
         

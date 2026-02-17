@@ -31,8 +31,8 @@ public class CesiumFeatureColorizer : MonoBehaviour
     public float vertexColorStrength = 1.0f;
 
     [Header("Performance")]
-    [Tooltip("Skip recoloring existing tiles on data load")]
-    public bool skipInitialRecolor = true;
+    [Tooltip("Skip recoloring existing tiles on data load (disable for reliable Play mode coloring)")]
+    public bool skipInitialRecolor = false;
     
     [Tooltip("Meshes per frame during batched recoloring (higher = faster but may stutter)")]
     [Range(10, 500)]
@@ -184,10 +184,20 @@ public class CesiumFeatureColorizer : MonoBehaviour
         if (processedTiles.Contains(tileGameObject))
             return;
 
+        // CRITICAL: Don't color tiles if cache is still loading/parsing
+        // This prevents tiles from being colored with incomplete data during startup
+        // They'll be recolored by RecolorAllTiles once cache is fully loaded
+        if (energyManager == null || energyManager.buildingColorCache.Count == 0)
+        {
+            if (debugMode)
+                Debug.Log($"<color=yellow>⏸️ Tile loaded but cache not ready yet - will color after cache loads</color>");
+            return; // Don't add to processedTiles - let RecolorAllTiles handle it
+        }
+
         processedTiles.Add(tileGameObject);
         
         // Ensure reverse gmlId lookup is built (for tiles arriving after startup)
-        if (reverseGmlIdCache.Count == 0 && energyManager != null && energyManager.gmlIdCache.Count > 0)
+        if (reverseGmlIdCache.Count == 0 && energyManager.gmlIdCache.Count > 0)
         {
             foreach (var mapping in energyManager.gmlIdCache)
                 reverseGmlIdCache[mapping.Value] = mapping.Key;
