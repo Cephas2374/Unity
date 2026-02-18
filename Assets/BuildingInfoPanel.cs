@@ -115,15 +115,20 @@ public class BuildingInfoPanel : MonoBehaviour
     
     void OnDestroy()
     {
+        // Stop coroutines to prevent GC handle errors on domain reload
+        StopAllCoroutines();
+        
         // Clean up event listeners to prevent GC handle errors
         if (closeButton != null)
         {
-            closeButton.onClick.RemoveListener(ClosePanel);
+            closeButton.onClick.RemoveAllListeners();
+            closeButton = null;
         }
         
         if (editButton != null)
         {
-            editButton.onClick.RemoveListener(OnEditClicked);
+            editButton.onClick.RemoveAllListeners();
+            editButton = null;
         }
     }
 }

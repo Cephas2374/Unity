@@ -2815,6 +2815,7 @@ public class BuildingEnergyManager : MonoBehaviour
         // Additional cleanup for script domain reload
         isAuthenticating = false;
         isInitialized = false;
+        accessToken = null;
     }
     
     [ContextMenu("Show Building Count")]

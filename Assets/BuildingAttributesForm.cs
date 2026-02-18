@@ -67,7 +67,7 @@ public class BuildingAttributesForm : MonoBehaviour
     private Dictionary<string, string> heatingSystemReverseMap = new Dictionary<string, string>();
 
     // XR / HoloLens 2 support
-    private bool isXRDevice = false;
+    private bool isXRDevice = true;
     private bool xrSelectWasPressed = false;
 
     void Start()
@@ -84,12 +84,9 @@ public class BuildingAttributesForm : MonoBehaviour
         
         Debug.Log("✅ BuildingAttributesForm ready - form will be created on first Ctrl+Click");
         
-        // Detect XR device (HoloLens 2)
-#if UNITY_WSA || WINDOWS_UWP
-        isXRDevice = true;
-#else
-        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
-#endif
+        // XR device detection: isXRDevice defaults to true for direct HoloLens deploy.
+        // No runtime override needed — field is true by default.
+        Debug.Log($"BuildingAttributesForm: isXRDevice = {isXRDevice}");
     }
 
     void Update()

@@ -31,16 +31,12 @@ public class CameraController : MonoBehaviour
     public bool enableDesktopControls = true;
     
     private bool rightMouseDown = false;
-    private bool isXRDevice = false;
+    private bool isXRDevice = true;
     
     void Start()
     {
-        // Detect XR device
-#if UNITY_WSA || WINDOWS_UWP
-        isXRDevice = true;
-#else
-        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
-#endif
+        // XR device detection: isXRDevice defaults to true for direct HoloLens deploy.
+        Debug.Log($"CameraController: isXRDevice = {isXRDevice}");
 
         Debug.Log($"<color=cyan>========== CAMERA CONTROLLER START ==========</color>");
         Debug.Log($"<color=cyan>XR Device Detected: {isXRDevice}</color>");

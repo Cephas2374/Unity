@@ -62,7 +62,7 @@ public class CesiumMetadataReader : MonoBehaviour
     private bool isHoldingGesture = false;
     private float holdTimer = 0f;
     private bool holdProcessed = false;
-    private bool isXRDevice = false;
+    private bool isXRDevice = true;
     private bool wasXRSelectPressed = false;
 
     void Start()
@@ -142,18 +142,11 @@ public class CesiumMetadataReader : MonoBehaviour
     
     void DetectXRDevice()
     {
-#if UNITY_WSA || WINDOWS_UWP
-        isXRDevice = true;
-        Debug.Log("<color=cyan>Running on HoloLens 2 / UWP platform</color>");
-#elif ENABLE_INPUT_SYSTEM && UNITY_XR
-        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
-        Debug.Log($"<color=cyan>XR Device Active: {isXRDevice}</color>");
-#else
-        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
-        Debug.Log($"<color=cyan>XR Device Active: {isXRDevice}</color>");
-#endif
+        // Default: isXRDevice = true (set at field declaration) so HoloLens builds work immediately.
+        // Override to false only if forceDesktopInput is checked in the Inspector.
+        Debug.Log($"<color=cyan>XR Device default: {isXRDevice} (true = HoloLens mode)</color>");
 
-        // Check for manual override
+        // Check for manual override (Inspector toggle for desktop testing)
         if (forceDesktopInput)
         {
             Debug.Log("<color=yellow>⚠️ FORCE DESKTOP INPUT ENABLED - Overriding XR detection</color>");

@@ -30,7 +30,7 @@ public class BuildingCountDisplay : MonoBehaviour
     private int lastTilesetCount = 0;
     private float lastComparisonUpdate = 0f;
     private float comparisonUpdateInterval = 5f; // Update comparison every 5 seconds
-    private bool isXRDevice = false;
+    private bool isXRDevice = true;
     
     void Start()
     {
@@ -44,12 +44,8 @@ public class BuildingCountDisplay : MonoBehaviour
             }
         }
         
-        // Detect XR device
-#if UNITY_WSA || WINDOWS_UWP
-        isXRDevice = true;
-#else
-        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
-#endif
+        // XR device detection: isXRDevice defaults to true for direct HoloLens deploy.
+        Debug.Log($"BuildingCountDisplay: isXRDevice = {isXRDevice}");
         
         if (featureColorizer == null && showComparison)
         {
@@ -261,10 +257,14 @@ public class BuildingCountDisplay : MonoBehaviour
     
     void OnDestroy()
     {
+        // Stop coroutines to prevent GC handle errors on domain reload
+        StopAllCoroutines();
+        
         // Clean up created UI
         if (textPanel != null)
         {
             Destroy(textPanel);
+            textPanel = null;
         }
     }
 }
