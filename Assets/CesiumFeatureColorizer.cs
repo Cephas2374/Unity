@@ -74,11 +74,15 @@ public class CesiumFeatureColorizer : MonoBehaviour
     
     void Update()
     {
+        // Desktop keyboard shortcut: Ctrl+Shift+C = Count Buildings
+        // On HoloLens 2 this won't fire (no keyboard) - call CountBuildingsAndShowStats() from UI instead
+#if !UNITY_WSA && !WINDOWS_UWP
         if (Input.GetKey(KeyCode.LeftControl) && Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.C))
         {
-            Debug.Log("<color=cyan>🔢 Keyboard shortcut: Ctrl+Shift+C - Count Buildings</color>");
+            Debug.Log("<color=cyan>Keyboard shortcut: Ctrl+Shift+C - Count Buildings</color>");
             StartCoroutine(CountBuildingsAndShowStats());
         }
+#endif
     }
     
     IEnumerator DelayedStart()

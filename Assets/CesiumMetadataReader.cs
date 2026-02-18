@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using UnityEngine.XR;
 using CesiumForUnity;
 using System;
 using System.Collections;using System.Linq;using System.Collections.Generic;
@@ -62,6 +63,7 @@ public class CesiumMetadataReader : MonoBehaviour
     private float holdTimer = 0f;
     private bool holdProcessed = false;
     private bool isXRDevice = false;
+    private bool wasXRSelectPressed = false;
 
     void Start()
     {
@@ -304,30 +306,13 @@ public class CesiumMetadataReader : MonoBehaviour
     
     void HandleXRInput()
     {
-        // HoloLens 2: Air tap/select for quick view, hold for edit
-        // Using primary button as universal select gesture
-        bool selectPressed = false;
-        bool selectReleased = false;
+        // HoloLens 2: Detect air tap / pinch via OpenXR input devices
+        // Quick tap = view building data, Hold (0.5s+) = open edit form
+        bool currentSelectState = GetXRSelectState();
         
-#if ENABLE_INPUT_SYSTEM
-        // New Input System (recommended for HoloLens 2)
-        selectPressed = UnityEngine.InputSystem.Mouse.current?.leftButton.wasPressedThisFrame ?? false;
-        selectReleased = UnityEngine.InputSystem.Mouse.current?.leftButton.wasReleasedThisFrame ?? false;
-        
-        // Also check for XR select action if available
-        if (!selectPressed)
-        {
-            selectPressed = UnityEngine.InputSystem.Keyboard.current?.spaceKey.wasPressedThisFrame ?? false;
-        }
-        if (!selectReleased)
-        {
-            selectReleased = UnityEngine.InputSystem.Keyboard.current?.spaceKey.wasReleasedThisFrame ?? false;
-        }
-#else
-        // Legacy input system fallback
-        selectPressed = Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space);
-        selectReleased = Input.GetMouseButtonUp(0) || Input.GetKeyUp(KeyCode.Space);
-#endif
+        bool selectPressed = currentSelectState && !wasXRSelectPressed;
+        bool selectReleased = !currentSelectState && wasXRSelectPressed;
+        wasXRSelectPressed = currentSelectState;
         
         // Handle gesture start
         if (selectPressed)
@@ -346,6 +331,7 @@ public class CesiumMetadataReader : MonoBehaviour
             if (holdTimer >= holdDuration && !holdProcessed)
             {
                 // Hold gesture detected - open edit form
+                Debug.Log("<color=magenta>\U0001f590️ XR HOLD gesture detected → Opening edit form</color>");
                 HandleBuildingClick(true);
                 holdProcessed = true;
                 isHoldingGesture = false;
@@ -358,6 +344,7 @@ public class CesiumMetadataReader : MonoBehaviour
             if (isHoldingGesture && !holdProcessed)
             {
                 // Quick tap - view data
+                Debug.Log("<color=cyan>\U0001f446 XR TAP gesture detected → Viewing building data</color>");
                 HandleBuildingClick(false);
             }
             isHoldingGesture = false;
@@ -365,11 +352,53 @@ public class CesiumMetadataReader : MonoBehaviour
         }
     }
     
+    /// <summary>
+    /// Reads the select/trigger state from all XR input devices.
+    /// On HoloLens 2, air tap and pinch gestures map to primaryButton or triggerButton via OpenXR.
+    /// </summary>
+    bool GetXRSelectState()
+    {
+        var inputDevices = new List<UnityEngine.XR.InputDevice>();
+        UnityEngine.XR.InputDevices.GetDevices(inputDevices);
+        
+        foreach (var device in inputDevices)
+        {
+            bool value;
+            
+            // HoloLens 2 air tap / hand pinch → primaryButton
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out value) && value)
+                return true;
+            
+            // Fallback: trigger button (some controller configurations)
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out value) && value)
+                return true;
+            
+            // Fallback: analog trigger axis > 0.5
+            float triggerAxis;
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trigger, out triggerAxis) && triggerAxis > 0.5f)
+                return true;
+        }
+        
+        return false;
+    }
+    
     void HandleBuildingClick(bool isRightClick)
     {
         Debug.Log($"<color=magenta>======== HandleBuildingClick CALLED ======== isRightClick={isRightClick}</color>");
         
-        Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+        // Create ray based on input mode
+        Ray ray;
+        if (isXRDevice && useXRInput)
+        {
+            // HoloLens 2: Use head gaze direction (camera forward)
+            ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
+            Debug.Log($"<color=cyan>\U0001f3af XR Gaze Ray: origin={mainCamera.transform.position}, dir={mainCamera.transform.forward}</color>");
+        }
+        else
+        {
+            // Desktop: Use mouse screen position
+            ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+        }
         RaycastHit hit;
 
         if (Physics.Raycast(ray, out hit))

@@ -254,12 +254,15 @@ public class BuildingEnergyManager : MonoBehaviour
     
     void Update()
     {
-        // 🔄 Keyboard shortcut for clearing cache (Ctrl+Shift+Delete)
+        // Keyboard shortcut for clearing cache (Ctrl+Shift+Delete)
+        // On HoloLens 2 this won't fire (no keyboard) - call ClearPersistentCache() from UI instead
+#if !UNITY_WSA && !WINDOWS_UWP
         if (Input.GetKey(KeyCode.LeftControl) && Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.Delete))
         {
-            Debug.Log("<color=cyan>🗑️ Keyboard shortcut triggered: Ctrl+Shift+Delete - Clear Cache</color>");
+            Debug.Log("<color=cyan>Keyboard shortcut triggered: Ctrl+Shift+Delete - Clear Cache</color>");
             ClearPersistentCache();
         }
+#endif
         
         // Periodic check for external changes (if enabled)
         if (enableChangeDetection && buildingDataCache.Count > 0)

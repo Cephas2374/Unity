@@ -66,6 +66,10 @@ public class BuildingAttributesForm : MonoBehaviour
     private Dictionary<string, string> roofStoreyReverseMap = new Dictionary<string, string>();
     private Dictionary<string, string> heatingSystemReverseMap = new Dictionary<string, string>();
 
+    // XR / HoloLens 2 support
+    private bool isXRDevice = false;
+    private bool xrSelectWasPressed = false;
+
     void Start()
     {
         if (energyManager == null)

@@ -76,11 +76,14 @@ public class BuildingCountDisplay : MonoBehaviour
         }
         
         // Keyboard shortcut: Ctrl+Shift+B = Toggle Building Count Display
+        // On HoloLens 2 this won't fire (no keyboard) - call ToggleDisplay() from UI instead
+#if !UNITY_WSA && !WINDOWS_UWP
         if (Input.GetKey(KeyCode.LeftControl) && Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.B))
         {
             ToggleDisplay();
             Debug.Log($"<color=cyan>Building count display toggled: {(textPanel != null && textPanel.activeSelf ? "ON" : "OFF")}</color>");
         }
+#endif
     }
     
     void CreateDisplayUI()
