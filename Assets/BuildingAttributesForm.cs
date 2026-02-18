@@ -192,8 +192,14 @@ public class BuildingAttributesForm : MonoBehaviour
             modalBlocker.SetActive(true);
         if (formPanel != null)
             formPanel.SetActive(true);
+        
+        // On HoloLens, reposition the form canvas in front of the user each time
+        if (isXRDevice && mainCanvas != null)
+        {
+            PositionCanvasInFrontOfCamera(mainCanvas.gameObject);
+        }
             
-        Debug.Log($"✅ Form displayed for: {gmlId}");
+        Debug.Log($"Form displayed for: {gmlId}");
     }
 
     /// <summary>
@@ -228,15 +234,29 @@ public class BuildingAttributesForm : MonoBehaviour
         mainCanvas = FindObjectOfType<Canvas>();
         if (mainCanvas == null)
         {
-            Debug.LogError("❌ No Canvas found in scene!");
-            return;
+            // Create a canvas since none exists
+            GameObject canvasObj = new GameObject("FormCanvas");
+            mainCanvas = canvasObj.AddComponent<Canvas>();
+            canvasObj.AddComponent<CanvasScaler>();
+            canvasObj.AddComponent<GraphicRaycaster>();
+        }
+        
+        // On HoloLens 2: Switch to WorldSpace if currently ScreenSpaceOverlay
+        if (isXRDevice && mainCanvas.renderMode == RenderMode.ScreenSpaceOverlay)
+        {
+            mainCanvas.renderMode = RenderMode.WorldSpace;
+            RectTransform canvasRect = mainCanvas.GetComponent<RectTransform>();
+            canvasRect.sizeDelta = new Vector2(1200, 900);
+            mainCanvas.transform.localScale = Vector3.one * 0.001f;
+            PositionCanvasInFrontOfCamera(mainCanvas.gameObject);
+            Debug.Log("<color=cyan>Switched form canvas to WorldSpace for HoloLens 2</color>");
         }
         
         // Ensure the canvas has a GraphicRaycaster for UI clicks to work
         if (mainCanvas.GetComponent<GraphicRaycaster>() == null)
         {
             mainCanvas.gameObject.AddComponent<GraphicRaycaster>();
-            Debug.Log("✅ Added GraphicRaycaster to main canvas");
+            Debug.Log("Added GraphicRaycaster to main canvas");
         }
 
         // === MODAL BLOCKER (Background) ===
@@ -1885,6 +1905,24 @@ public class BuildingAttributesForm : MonoBehaviour
     {
         StopAllCoroutines();
         DestroyForm();
+    }
+    
+    /// <summary>
+    /// Positions a WorldSpace canvas 1.5m in front of the camera, facing the user.
+    /// Used on HoloLens 2 where ScreenSpaceOverlay canvases are invisible.
+    /// </summary>
+    void PositionCanvasInFrontOfCamera(GameObject canvasObj)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+        
+        Vector3 forward = cam.transform.forward;
+        forward.y = 0;
+        if (forward == Vector3.zero) forward = Vector3.forward;
+        forward.Normalize();
+        
+        canvasObj.transform.position = cam.transform.position + forward * 1.5f;
+        canvasObj.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
     }
 }
 

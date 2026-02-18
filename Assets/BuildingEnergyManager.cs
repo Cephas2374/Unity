@@ -1376,8 +1376,23 @@ public class BuildingEnergyManager : MonoBehaviour
                 
                 if (request.responseCode == 401)
                 {
-                    Debug.LogError($"<color=red>🔐 AUTHENTICATION ERROR - Token invalid or expired!</color>");
-                    Debug.LogError($"<color=yellow>💡 Solution: Right-click BuildingEnergyManager → 'Hard Refresh Cache (Clear & Reload)'</color>");
+                    Debug.LogError($"<color=red>AUTHENTICATION ERROR - Token invalid or expired!</color>");
+                    Debug.Log("<color=cyan>Auto-refreshing token and retrying...</color>");
+                    
+                    // Auto-refresh: clear token, re-authenticate, and retry
+                    accessToken = "";
+                    yield return Authenticate();
+                    
+                    if (!string.IsNullOrEmpty(accessToken))
+                    {
+                        Debug.Log("<color=green>Token refreshed - retrying download...</color>");
+                        yield return DownloadAllBuildingsFromAPI();
+                        yield break; // Exit this call since we're retrying
+                    }
+                    else
+                    {
+                        Debug.LogError("<color=red>Re-authentication failed! Check API credentials.</color>");
+                    }
                 }
                 else if (request.responseCode == 0)
                 {

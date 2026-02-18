@@ -184,8 +184,23 @@ public class CesiumMetadataReader : MonoBehaviour
         {
             canvasObj = new GameObject("MetadataCanvas");
             canvas = canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 50; // Below the form
+            
+            if (isXRDevice)
+            {
+                // HoloLens 2: WorldSpace canvas positioned in front of user
+                canvas.renderMode = RenderMode.WorldSpace;
+                canvas.sortingOrder = 50;
+                RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
+                canvasRect.sizeDelta = new Vector2(800, 600);
+                canvasObj.transform.localScale = Vector3.one * 0.001f; // 1mm per unit
+                PositionCanvasInFrontOfCamera(canvasObj);
+            }
+            else
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 50;
+            }
+            
             canvasObj.AddComponent<CanvasScaler>();
             canvasObj.AddComponent<GraphicRaycaster>();
         }
@@ -390,15 +405,23 @@ public class CesiumMetadataReader : MonoBehaviour
         Ray ray;
         if (isXRDevice && useXRInput)
         {
-            // HoloLens 2: Use head gaze direction (camera forward)
-            ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
-            Debug.Log($"<color=cyan>\U0001f3af XR Gaze Ray: origin={mainCamera.transform.position}, dir={mainCamera.transform.forward}</color>");
+            // HoloLens 2: Try XR hand ray first, fall back to head gaze
+            ray = GetXRRay();
+            Debug.Log($"<color=cyan>XR Ray: origin={ray.origin}, dir={ray.direction}</color>");
         }
         else
         {
             // Desktop: Use mouse screen position
             ray = mainCamera.ScreenPointToRay(Input.mousePosition);
         }
+        
+        // Reposition UI canvas in front of user on HoloLens
+        if (isXRDevice)
+        {
+            GameObject metadataCanvas = GameObject.Find("MetadataCanvas");
+            if (metadataCanvas != null) PositionCanvasInFrontOfCamera(metadataCanvas);
+        }
+        
         RaycastHit hit;
 
         if (Physics.Raycast(ray, out hit))
@@ -993,5 +1016,72 @@ public class CesiumMetadataReader : MonoBehaviour
     {
         // Stop all coroutines to prevent GC handle issues on domain reload
         StopAllCoroutines();
+    }
+    
+    /// <summary>
+    /// Gets a ray for XR interaction. Tries XR hand ray controllers first (aim pose),
+    /// then falls back to head gaze (camera forward).
+    /// </summary>
+    Ray GetXRRay()
+    {
+        // Try to get hand ray from XR input devices (aim position + rotation)
+        var inputDevices = new List<UnityEngine.XR.InputDevice>();
+        
+        // Check right hand first (most users are right-handed)
+        UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
+            UnityEngine.XR.InputDeviceCharacteristics.Right | UnityEngine.XR.InputDeviceCharacteristics.Controller,
+            inputDevices);
+        
+        // Also check left hand
+        if (inputDevices.Count == 0)
+        {
+            UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
+                UnityEngine.XR.InputDeviceCharacteristics.Left | UnityEngine.XR.InputDeviceCharacteristics.Controller,
+                inputDevices);
+        }
+        
+        // Also check hand tracking devices directly
+        if (inputDevices.Count == 0)
+        {
+            UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
+                UnityEngine.XR.InputDeviceCharacteristics.HandTracking,
+                inputDevices);
+        }
+        
+        foreach (var device in inputDevices)
+        {
+            Vector3 aimPosition;
+            Quaternion aimRotation;
+            
+            bool hasPos = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out aimPosition);
+            bool hasRot = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out aimRotation);
+            
+            if (hasPos && hasRot && aimPosition != Vector3.zero)
+            {
+                Debug.Log($"<color=green>Using XR hand ray from device: {device.name}</color>");
+                return new Ray(aimPosition, aimRotation * Vector3.forward);
+            }
+        }
+        
+        // Fallback: Head gaze (camera forward direction)
+        Debug.Log("<color=yellow>Fallback: Using head gaze ray</color>");
+        return new Ray(mainCamera.transform.position, mainCamera.transform.forward);
+    }
+    
+    /// <summary>
+    /// Positions a WorldSpace canvas 1.5m in front of the camera, facing the user.
+    /// Used on HoloLens 2 where ScreenSpaceOverlay canvases are invisible.
+    /// </summary>
+    void PositionCanvasInFrontOfCamera(GameObject canvasObj)
+    {
+        if (mainCamera == null) return;
+        
+        Vector3 forward = mainCamera.transform.forward;
+        forward.y = 0; // Keep canvas upright (don't tilt with head pitch)
+        if (forward == Vector3.zero) forward = Vector3.forward;
+        forward.Normalize();
+        
+        canvasObj.transform.position = mainCamera.transform.position + forward * 1.5f;
+        canvasObj.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
     }
 }

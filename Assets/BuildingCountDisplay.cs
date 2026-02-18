@@ -30,6 +30,7 @@ public class BuildingCountDisplay : MonoBehaviour
     private int lastTilesetCount = 0;
     private float lastComparisonUpdate = 0f;
     private float comparisonUpdateInterval = 5f; // Update comparison every 5 seconds
+    private bool isXRDevice = false;
     
     void Start()
     {
@@ -42,6 +43,13 @@ public class BuildingCountDisplay : MonoBehaviour
                 return;
             }
         }
+        
+        // Detect XR device
+#if UNITY_WSA || WINDOWS_UWP
+        isXRDevice = true;
+#else
+        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
+#endif
         
         if (featureColorizer == null && showComparison)
         {
@@ -101,8 +109,22 @@ public class BuildingCountDisplay : MonoBehaviour
         {
             canvasObj = new GameObject("BuildingCountCanvas");
             canvas = canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100; // Display on top
+            
+            if (isXRDevice)
+            {
+                // HoloLens 2: WorldSpace canvas
+                canvas.renderMode = RenderMode.WorldSpace;
+                canvas.sortingOrder = 100;
+                RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
+                canvasRect.sizeDelta = new Vector2(400, 200);
+                canvasObj.transform.localScale = Vector3.one * 0.001f;
+            }
+            else
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 100;
+            }
+            
             canvasObj.AddComponent<CanvasScaler>();
             canvasObj.AddComponent<GraphicRaycaster>();
         }
