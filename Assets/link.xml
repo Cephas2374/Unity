@@ -1,0 +1,50 @@
+<linker>
+    <!--
+        link.xml - Prevents IL2CPP managed code stripping from removing
+        assemblies and types that are used at runtime but may appear
+        "unused" to the static linker (reflection, GetComponent, 
+        FindObjectOfType, dynamic Invoke, coroutines, etc.)
+        
+        Place this file in Assets/ (it's already there).
+        Unity picks it up automatically during IL2CPP builds — no 
+        additional configuration is needed.
+    -->
+
+    <!-- Preserve ALL your project scripts (Assembly-CSharp) -->
+    <assembly fullname="Assembly-CSharp" preserve="all"/>
+
+    <!-- Preserve Cesium for Unity (runtime tile loading, metadata, features) -->
+    <assembly fullname="CesiumForUnity" preserve="all"/>
+    <assembly fullname="CesiumForUnityNative" preserve="all"/>
+
+    <!-- Core Unity engine types used via GetComponent / reflection -->
+    <assembly fullname="UnityEngine" preserve="all"/>
+    <assembly fullname="UnityEngine.CoreModule" preserve="all"/>
+    <assembly fullname="UnityEngine.PhysicsModule" preserve="all"/>
+    <assembly fullname="UnityEngine.UI" preserve="all"/>
+    <assembly fullname="UnityEngine.UIModule" preserve="all"/>
+    <assembly fullname="UnityEngine.IMGUIModule" preserve="all"/>
+    <assembly fullname="UnityEngine.InputLegacyModule" preserve="all"/>
+    <assembly fullname="UnityEngine.AnimationModule" preserve="all"/>
+    <assembly fullname="UnityEngine.TextRenderingModule" preserve="all"/>
+    <assembly fullname="UnityEngine.UnityWebRequestModule" preserve="all"/>
+    <assembly fullname="UnityEngine.UnityWebRequestWWWModule" preserve="all"/>
+    <assembly fullname="UnityEngine.JSONSerializeModule" preserve="all"/>
+    <assembly fullname="UnityEngine.ImageConversionModule" preserve="all"/>
+
+    <!-- XR / Mixed Reality -->
+    <assembly fullname="UnityEngine.XRModule" preserve="all"/>
+    <assembly fullname="UnityEngine.SpatialTracking" preserve="all"/>
+    <assembly fullname="Unity.XR.OpenXR" preserve="all"/>
+    <assembly fullname="Unity.XR.Management" preserve="all"/>
+    <assembly fullname="Unity.XR.Interaction.Toolkit" preserve="all"/>
+
+    <!-- Newtonsoft JSON (used by Cesium and web requests) -->
+    <assembly fullname="Newtonsoft.Json" preserve="all"/>
+
+    <!-- System assemblies used for networking, reflection, serialization -->
+    <assembly fullname="System" preserve="all"/>
+    <assembly fullname="System.Core" preserve="all"/>
+    <assembly fullname="System.Net.Http" preserve="all"/>
+    <assembly fullname="mscorlib" preserve="all"/>
+</linker>
