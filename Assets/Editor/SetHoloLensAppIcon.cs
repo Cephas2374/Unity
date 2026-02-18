@@ -106,13 +106,6 @@ public class SetHoloLensAppIcon : IPreprocessBuildWithReport
         PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPWide310x150Logo, PlayerSettings.WSAImageScale._200);
         PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPWide310x150Logo, PlayerSettings.WSAImageScale._400);
 
-        // Store logo
-        PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPStoreLogo, PlayerSettings.WSAImageScale._100);
-        PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPStoreLogo, PlayerSettings.WSAImageScale._125);
-        PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPStoreLogo, PlayerSettings.WSAImageScale._150);
-        PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPStoreLogo, PlayerSettings.WSAImageScale._200);
-        PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.UWPStoreLogo, PlayerSettings.WSAImageScale._400);
-
         // Splash screen
         PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.SplashScreenImage, PlayerSettings.WSAImageScale._100);
         PlayerSettings.WSA.SetVisualAssetsImage(LogoPath, PlayerSettings.WSAImageType.SplashScreenImage, PlayerSettings.WSAImageScale._125);
