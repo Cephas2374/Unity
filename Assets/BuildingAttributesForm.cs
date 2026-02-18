@@ -83,38 +83,85 @@ public class BuildingAttributesForm : MonoBehaviour
         }
         
         Debug.Log("✅ BuildingAttributesForm ready - form will be created on first Ctrl+Click");
+        
+        // Detect XR device (HoloLens 2)
+#if UNITY_WSA || WINDOWS_UWP
+        isXRDevice = true;
+#else
+        isXRDevice = UnityEngine.XR.XRSettings.isDeviceActive;
+#endif
     }
 
     void Update()
     {
-        // F5 to force refresh form UI
-        if (Input.GetKeyDown(KeyCode.F5))
+        // F5 to force refresh form UI (desktop only - no keyboard on HoloLens)
+        if (!isXRDevice && Input.GetKeyDown(KeyCode.F5))
         {
             Debug.Log("🔄 F5 - Destroying form for refresh...");
             DestroyForm();
         }
         
-        // Handle click outside form to close it
-        if (modalBlocker != null && modalBlocker.activeInHierarchy && Input.GetMouseButtonDown(0))
+        // Handle click/tap outside form to close it
+        bool selectTriggered = false;
+        Vector2 pointerPosition = Vector2.zero;
+        
+        if (isXRDevice)
         {
-            if (!EventSystem.current.IsPointerOverGameObject())
+            // XR: Detect air tap and use screen center (gaze point) as pointer position
+            selectTriggered = GetXRSelectDown();
+            pointerPosition = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        }
+        else
+        {
+            // Desktop: Use mouse click and mouse position
+            selectTriggered = Input.GetMouseButtonDown(0);
+            pointerPosition = Input.mousePosition;
+        }
+        
+        if (modalBlocker != null && modalBlocker.activeInHierarchy && selectTriggered)
+        {
+            if (!isXRDevice && EventSystem.current != null && !EventSystem.current.IsPointerOverGameObject())
             {
-                // Click outside all UI  - ignore
+                // Desktop: Click outside all UI - ignore
                 return;
             }
             
-            // Check if click was on the form panel (not outside it)
+            // Check if click/tap was on the form panel (not outside it)
             RectTransform formRect = formPanel != null ? formPanel.GetComponent<RectTransform>() : null;
-            if (formRect != null && RectTransformUtility.RectangleContainsScreenPoint(formRect, Input.mousePosition))
+            if (formRect != null && RectTransformUtility.RectangleContainsScreenPoint(formRect, pointerPosition))
             {
-                // Click was ON the form, don't close
+                // Click/tap was ON the form, don't close
                 return;
             }
             
-            // Click was on modal blocker background (outside form), close it
-            Debug.Log("🚪 Click outside form - closing");
+            // Click/tap was on modal blocker background (outside form), close it
+            Debug.Log("🚪 Click/Tap outside form - closing");
             CloseForm();
         }
+    }
+    
+    /// <summary>
+    /// Detects XR select press (air tap / pinch) with edge detection.
+    /// Returns true only on the frame the gesture first begins.
+    /// </summary>
+    private bool GetXRSelectDown()
+    {
+        bool currentState = false;
+        var devices = new List<UnityEngine.XR.InputDevice>();
+        UnityEngine.XR.InputDevices.GetDevices(devices);
+        
+        foreach (var device in devices)
+        {
+            bool value;
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out value) && value)
+            { currentState = true; break; }
+            if (device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.triggerButton, out value) && value)
+            { currentState = true; break; }
+        }
+        
+        bool justPressed = currentState && !xrSelectWasPressed;
+        xrSelectWasPressed = currentState;
+        return justPressed;
     }
 
     /// <summary>
