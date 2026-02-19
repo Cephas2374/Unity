@@ -12,50 +12,6 @@ public class ForceOpaqueAlpha : MonoBehaviour
 {
     private Material forceAlphaMat;
 
-    private static readonly string shaderCode = @"
-        Shader ""Hidden/ForceAlpha""
-        {
-            SubShader
-            {
-                Pass
-                {
-                    ZTest Always ZWrite Off Cull Off
-                    ColorMask A
-                    
-                    CGPROGRAM
-                    #pragma vertex vert
-                    #pragma fragment frag
-                    
-                    struct appdata { float4 vertex : POSITION; };
-                    struct v2f { float4 pos : SV_POSITION; };
-                    
-                    v2f vert(appdata v)
-                    {
-                        v2f o;
-                        o.pos = UnityObjectToClipPos(v.vertex);
-                        return o;
-                    }
-                    
-                    fixed4 frag(v2f i) : SV_Target
-                    {
-                        return fixed4(0, 0, 0, 1);
-                    }
-                    ENDCG
-                }
-            }
-        }";
-
-    void OnEnable()
-    {
-        var shader = Shader.Find("Hidden/ForceAlpha");
-        if (shader == null)
-        {
-            // Create shader at runtime if not found
-            Debug.Log("[ForceOpaqueAlpha] Creating force-alpha shader for MRC compatibility");
-            // We'll use a simple blit approach instead
-        }
-    }
-
     void OnRenderImage(RenderTexture src, RenderTexture dest)
     {
         if (forceAlphaMat == null)
