@@ -191,8 +191,8 @@ public class CesiumMetadataReader : MonoBehaviour
         panelImage.color = new Color(0, 0, 0, 0.85f);
         
         RectTransform panelRect = metadataPanel.GetComponent<RectTransform>();
-        panelRect.anchorMin = new Vector2(0.01f, 0.5f);
-        panelRect.anchorMax = new Vector2(0.3f, 0.99f);
+        panelRect.anchorMin = new Vector2(0.01f, 0.3f);
+        panelRect.anchorMax = new Vector2(0.35f, 0.99f);
         panelRect.offsetMin = Vector2.zero;
         panelRect.offsetMax = Vector2.zero;
         
@@ -206,6 +206,9 @@ public class CesiumMetadataReader : MonoBehaviour
         metadataText.color = Color.white;
         metadataText.alignment = TextAnchor.UpperLeft;
         metadataText.fontStyle = FontStyle.Bold;
+        metadataText.supportRichText = true;
+        metadataText.verticalOverflow = VerticalWrapMode.Overflow;
+        metadataText.horizontalOverflow = HorizontalWrapMode.Wrap;
         
         RectTransform textRect = textObj.GetComponent<RectTransform>();
         textRect.anchorMin = Vector2.zero;
