@@ -177,24 +177,8 @@ public class CesiumMetadataReader : MonoBehaviour
         {
             canvasObj = new GameObject("MetadataCanvas");
             canvas = canvasObj.AddComponent<Canvas>();
-            
-            if (isXRDevice)
-            {
-                // HoloLens 2: WorldSpace canvas sized to match screen-space proportions
-                // Use 1920x1080 so all anchor-based panel layouts and font sizes look the same
-                canvas.renderMode = RenderMode.WorldSpace;
-                canvas.sortingOrder = 50;
-                RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-                canvasRect.sizeDelta = new Vector2(1920, 1080);
-                canvasObj.transform.localScale = Vector3.one * 0.0004f; // ~0.77m wide, readable at arm's length
-                PositionCanvasInFrontOfCamera(canvasObj);
-            }
-            else
-            {
-                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvas.sortingOrder = 50;
-            }
-            
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 50; // Below the form
             canvasObj.AddComponent<CanvasScaler>();
             canvasObj.AddComponent<GraphicRaycaster>();
         }
@@ -407,13 +391,6 @@ public class CesiumMetadataReader : MonoBehaviour
         {
             // Desktop: Use mouse screen position
             ray = mainCamera.ScreenPointToRay(Input.mousePosition);
-        }
-        
-        // Reposition UI canvas in front of user on HoloLens
-        if (isXRDevice)
-        {
-            GameObject metadataCanvas = GameObject.Find("MetadataCanvas");
-            if (metadataCanvas != null) PositionCanvasInFrontOfCamera(metadataCanvas);
         }
         
         RaycastHit hit;
@@ -1060,22 +1037,5 @@ public class CesiumMetadataReader : MonoBehaviour
         // Fallback: Head gaze (camera forward direction)
         Debug.Log("<color=yellow>Fallback: Using head gaze ray</color>");
         return new Ray(mainCamera.transform.position, mainCamera.transform.forward);
-    }
-    
-    /// <summary>
-    /// Positions a WorldSpace canvas 1.5m in front of the camera, facing the user.
-    /// Used on HoloLens 2 where ScreenSpaceOverlay canvases are invisible.
-    /// </summary>
-    void PositionCanvasInFrontOfCamera(GameObject canvasObj)
-    {
-        if (mainCamera == null) return;
-        
-        Vector3 forward = mainCamera.transform.forward;
-        forward.y = 0; // Keep canvas upright (don't tilt with head pitch)
-        if (forward == Vector3.zero) forward = Vector3.forward;
-        forward.Normalize();
-        
-        canvasObj.transform.position = mainCamera.transform.position + forward * 1.5f;
-        canvasObj.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
     }
 }
