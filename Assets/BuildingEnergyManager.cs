@@ -1078,6 +1078,9 @@ public class BuildingEnergyManager : MonoBehaviour
                         Debug.Log($"✓ Authentication successful! Token length: {accessToken.Length}");
                         Debug.Log($"Token preview: {accessToken.Substring(0, Math.Min(20, accessToken.Length))}...");
                         
+                        // Reset auth flag BEFORE loading data so auto-retry on 401 can re-authenticate
+                        isAuthenticating = false;
+                        
                         // Now load building data
                         yield return DownloadAndCacheAllBuildings();
                     }
@@ -1195,8 +1198,29 @@ public class BuildingEnergyManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"<color=red>❌ Failed to download buildings: {request.error}</color>");
-                Debug.LogError($"<color=yellow>💡 Try 'Hard Refresh Cache' again</color>");
+                Debug.LogError($"<color=red>❌ Failed to download buildings: {request.error} (code {request.responseCode})</color>");
+                
+                if (request.responseCode == 401)
+                {
+                    Debug.Log("<color=cyan>Auto-refreshing token and retrying...</color>");
+                    accessToken = "";
+                    yield return Authenticate();
+                    
+                    if (!string.IsNullOrEmpty(accessToken))
+                    {
+                        Debug.Log("<color=green>Token refreshed - retrying smart download...</color>");
+                        yield return DownloadAndCacheAllBuildings();
+                        yield break;
+                    }
+                    else
+                    {
+                        Debug.LogError("<color=red>Re-authentication failed! Check API credentials.</color>");
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"<color=yellow>💡 Try 'Hard Refresh Cache' again</color>");
+                }
             }
         }
     }
