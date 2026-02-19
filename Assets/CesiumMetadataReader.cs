@@ -180,12 +180,13 @@ public class CesiumMetadataReader : MonoBehaviour
             
             if (isXRDevice)
             {
-                // HoloLens 2: WorldSpace canvas positioned in front of user
+                // HoloLens 2: WorldSpace canvas sized to match screen-space proportions
+                // Use 1920x1080 so all anchor-based panel layouts and font sizes look the same
                 canvas.renderMode = RenderMode.WorldSpace;
                 canvas.sortingOrder = 50;
                 RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-                canvasRect.sizeDelta = new Vector2(800, 600);
-                canvasObj.transform.localScale = Vector3.one * 0.001f; // 1mm per unit
+                canvasRect.sizeDelta = new Vector2(1920, 1080);
+                canvasObj.transform.localScale = Vector3.one * 0.0004f; // ~0.77m wide, readable at arm's length
                 PositionCanvasInFrontOfCamera(canvasObj);
             }
             else
