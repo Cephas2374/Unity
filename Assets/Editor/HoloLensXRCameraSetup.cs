@@ -36,6 +36,15 @@ public class HoloLensXRCameraSetup
             Debug.Log($"<color=green>✅ Added TrackedPoseDriver to {mainCam.name} for HoloLens 2 head tracking</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
+
+        // Auto-add ForceOpaqueAlpha for MRC video recording compatibility
+        ForceOpaqueAlpha forceAlpha = mainCam.GetComponent<ForceOpaqueAlpha>();
+        if (forceAlpha == null)
+        {
+            mainCam.gameObject.AddComponent<ForceOpaqueAlpha>();
+            Debug.Log($"<color=green>✅ Added ForceOpaqueAlpha to {mainCam.name} for MRC video capture</color>");
+            EditorUtility.SetDirty(mainCam.gameObject);
+        }
     }
 
     [MenuItem("Tools/HoloLens/Setup Main Camera for XR")]
