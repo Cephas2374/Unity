@@ -69,14 +69,14 @@ public class BuildingEnergyManager : MonoBehaviour
     
     [Header("Real-Time Updates")]
     [Tooltip("REAL-TIME MODE: Disable persistent cache, always fetch fresh data, poll for updates every interval")]
-    public bool realTimeMode = false;
+    public bool realTimeMode = true;
     
     [Tooltip("Enable change detection for external edits (polling) - ALWAYS ENABLED")]
     public bool enableChangeDetection = true;
     
-    [Tooltip("How often to check for external changes (seconds) - 5 seconds for real-time responsiveness")]
+    [Tooltip("How often to check for external changes (seconds) - 60 seconds = 1 minute for HoloLens optimization")]
     [Range(5f, 3600f)]
-    public float changeCheckInterval = 5f; // 5 seconds for real-time updates
+    public float changeCheckInterval = 60f; // 60 seconds = 1 minute for HoloLens battery/network efficiency
     
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
