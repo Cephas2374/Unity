@@ -40,7 +40,36 @@ This file lists **CRITICAL** settings that **MUST** be configured manually in Un
 
 ---
 
-## ✅ Setting 3: XR Auto-Initialization (ALREADY SET)
+## ✅ Setting 3: Main Camera XR Tracking (AUTOMATED)
+
+**Why needed:** Without TrackedPoseDriver, the camera won't follow your head movement on HoloLens — the view will be completely static.
+
+**Current state:** ✅ **Automated** via `Assets/Editor/HoloLensXRCameraSetup.cs`
+- Runs automatically when scene loads in Editor
+- Adds `TrackedPoseDriver` component to Main Camera
+- Configures for `GenericXRDevice` with position + rotation tracking
+- Can also run manually: **Tools → HoloLens → Setup Main Camera for XR**
+
+**No action needed** (happens automatically when you open the scene in Unity Editor).
+
+---
+
+## ✅ Setting 4: Cesium Physics Colliders (AUTOMATED)
+
+**Why needed:** Without physics colliders, raycasts can't hit buildings — tapping will do nothing.
+
+**Current state:** ✅ **Automated** via `Assets/Editor/CesiumColliderSetup.cs`
+- Runs automatically when scene loads in Editor
+- Enables `createPhysicsMeshes` on all Cesium3DTileset objects
+- Can also run manually: **Tools → HoloLens → Enable Cesium Colliders**
+
+**No action needed** (happens automatically when you open the scene in Unity Editor).
+
+**IMPORTANT:** After running, **save the scene** (Ctrl+S) to persist the changes!
+
+---
+
+## ✅ Setting 5: XR Auto-Initialization (ALREADY SET)
 
 **Why needed:** OpenXR subsystem must auto-start on HoloLens launch.
 
