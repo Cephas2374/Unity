@@ -22,14 +22,6 @@ public class CesiumSkySetup
 
     static void SetupSky()
     {
-        // Already using our sky material?
-        if (RenderSettings.skybox != null &&
-            RenderSettings.skybox.shader != null &&
-            RenderSettings.skybox.shader.name == SHADER_NAME)
-        {
-            return;
-        }
-
         Shader skyShader = Shader.Find(SHADER_NAME);
         if (skyShader == null)
         {
@@ -40,18 +32,17 @@ public class CesiumSkySetup
 
         // Load existing material or create a new one
         Material mat = AssetDatabase.LoadAssetAtPath<Material>(MAT_PATH);
-        if (mat == null)
+        if (mat == null || mat.shader != skyShader || !mat.HasProperty("_SkyMidColor"))
         {
+            // Recreate material to pick up new/changed shader properties
+            if (mat != null)
+            {
+                AssetDatabase.DeleteAsset(MAT_PATH);
+            }
             mat = new Material(skyShader);
             AssetDatabase.CreateAsset(mat, MAT_PATH);
             AssetDatabase.SaveAssets();
             Debug.Log("<color=green>✅ Created CesiumSkyWithClouds material at " + MAT_PATH + "</color>");
-        }
-        else if (mat.shader != skyShader)
-        {
-            mat.shader = skyShader;
-            EditorUtility.SetDirty(mat);
-            AssetDatabase.SaveAssets();
         }
 
         // Assign as the scene's skybox
