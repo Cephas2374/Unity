@@ -45,6 +45,15 @@ public class HoloLensXRCameraSetup
             Debug.Log($"<color=green>✅ Added ForceOpaqueAlpha to {mainCam.name} for MRC video capture</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
+
+        // Auto-add HoloLensNavigationUI for AR navigation buttons
+        HoloLensNavigationUI navUI = mainCam.GetComponent<HoloLensNavigationUI>();
+        if (navUI == null)
+        {
+            navUI = mainCam.gameObject.AddComponent<HoloLensNavigationUI>();
+            Debug.Log($"<color=green>✅ Added HoloLensNavigationUI to {mainCam.name} for AR navigation</color>");
+            EditorUtility.SetDirty(mainCam.gameObject);
+        }
     }
 
     [MenuItem("Tools/HoloLens/Setup Main Camera for XR")]
