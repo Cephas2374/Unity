@@ -1,15 +1,23 @@
 using UnityEngine;
 
 /// <summary>
-/// Forces alpha=1.0 on rendered pixels for HoloLens 2 Mixed Reality Capture (MRC).
+/// Forces alpha=1.0 on all rendered pixels for HoloLens 2 Mixed Reality Capture (MRC).
 ///
-/// On HoloLens 2, MRC composites holograms over the real-world camera using the alpha channel.
-/// Cesium shaders write alpha=0 for opaque geometry, making terrain invisible in recordings.
+/// On HoloLens 2, MRC composites holograms over the real-world camera feed using the alpha
+/// channel. Cesium and other shaders may write alpha=0 for opaque geometry, making content
+/// invisible in MRC recordings.
 ///
-/// IMPORTANT: This must NOT run for the live holographic display — forcing alpha=1 globally
-/// would make the transparent background (real-world see-through) appear as solid black.
-/// This script only activates when MRC is recording, detected by checking if Unity has added
-/// the photo/video camera (MRC uses an additional camera).
+/// This script performs a single fullscreen blit using ForceAlphaOnly.shader, which copies
+/// RGB from the rendered frame unchanged and sets alpha=1.0. It runs every frame but has
+/// ZERO visual impact on the live HoloLens 2 display — HoloLens 2 is an additive see-through
+/// display that ignores the alpha channel entirely. Only MRC uses alpha for compositing.
+///
+/// The shader is stereo-aware (supports single-pass instanced rendering on HoloLens 2).
+///
+/// Previous version caused FLASHING AND CRASHES because:
+///  1. GL.Color(0,0,0,1) drew a BLACK quad — overwrote RGB, not just alpha
+///  2. MRC detection toggled on/off every second — visual flicker
+///  3. Double render pass (Blit + GL immediate mode) — overloaded HoloLens GPU
 ///
 /// Attach to the Main Camera (auto-attached by HoloLensXRCameraSetup).
 /// </summary>
@@ -17,66 +25,47 @@ using UnityEngine;
 public class ForceOpaqueAlpha : MonoBehaviour
 {
     private Material forceAlphaMat;
-    private bool isMRCActive = false;
-    private float mrcCheckTimer = 0f;
-    private const float MRC_CHECK_INTERVAL = 1.0f; // Check every second
 
-    void Update()
+    void Start()
     {
-        // Periodically check if MRC is recording by counting cameras.
-        // When MRC starts, Unity adds a "Photo Video Camera" to the scene.
-        mrcCheckTimer += Time.deltaTime;
-        if (mrcCheckTimer >= MRC_CHECK_INTERVAL)
+        Shader shader = Shader.Find("Hidden/ForceAlphaOnly");
+        if (shader != null && shader.isSupported)
         {
-            mrcCheckTimer = 0f;
-            Camera[] allCameras = Camera.allCameras;
-            isMRCActive = allCameras.Length > 1; // More than just Main Camera = MRC is active
+            forceAlphaMat = new Material(shader);
+            forceAlphaMat.hideFlags = HideFlags.HideAndDontSave;
+        }
+        else
+        {
+            Debug.LogWarning("ForceOpaqueAlpha: Hidden/ForceAlphaOnly shader not found. " +
+                             "MRC alpha fix disabled. Ensure ForceAlphaOnly.shader is in Assets/.");
+            // Disable this component so OnRenderImage is never called — avoids
+            // pointless render-to-texture overhead on HoloLens 2.
+            enabled = false;
         }
     }
 
+    /// <summary>
+    /// Single-pass blit: copies RGB from the rendered frame and sets alpha=1.
+    /// No GL immediate mode, no toggling, no double blit.
+    /// </summary>
     void OnRenderImage(RenderTexture src, RenderTexture dest)
     {
-        // Always blit the image through
-        Graphics.Blit(src, dest);
-        
-        // Only force alpha=1 when MRC is recording
-        if (!isMRCActive)
+        if (forceAlphaMat != null)
         {
-            return;
+            Graphics.Blit(src, dest, forceAlphaMat);
         }
-
-        if (forceAlphaMat == null)
+        else
         {
-            forceAlphaMat = new Material(Shader.Find("Hidden/Internal-Colored"));
-            if (forceAlphaMat == null)
-            {
-                return;
-            }
+            Graphics.Blit(src, dest);
         }
-
-        // Force alpha=1 on the destination so MRC sees holograms as opaque
-        GL.PushMatrix();
-        GL.LoadOrtho();
-
-        var prevRT = RenderTexture.active;
-        RenderTexture.active = dest;
-
-        // Draw fullscreen quad writing only alpha=1
-        GL.Begin(GL.QUADS);
-        GL.Color(new Color(0, 0, 0, 1));
-        GL.Vertex3(0, 0, 0);
-        GL.Vertex3(1, 0, 0);
-        GL.Vertex3(1, 1, 0);
-        GL.Vertex3(0, 1, 0);
-        GL.End();
-
-        RenderTexture.active = prevRT;
-        GL.PopMatrix();
     }
 
     void OnDestroy()
     {
         if (forceAlphaMat != null)
+        {
             Destroy(forceAlphaMat);
+            forceAlphaMat = null;
+        }
     }
 }

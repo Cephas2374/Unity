@@ -43,7 +43,8 @@ public class CesiumShaderProtection : IPreprocessBuildWithReport
             "Standard",                          // Unity Standard — Cesium default opaque
             "Unlit/Texture",                     // Cesium uses for some imagery overlays
             "Unlit/Color",                       // Fallback for untextured tiles
-            "Hidden/Internal-Colored",           // Used by ForceOpaqueAlpha for MRC fix
+            "Hidden/Internal-Colored",           // Unity built-in, used by various systems
+            "Hidden/ForceAlphaOnly",             // ForceOpaqueAlpha MRC alpha fix shader
             "Sprites/Default",                   // Used by XRInteractionFeedback cursor/ring
             "Legacy Shaders/Diffuse",            // Cesium fallback
         };
