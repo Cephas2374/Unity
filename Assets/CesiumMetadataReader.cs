@@ -64,6 +64,20 @@ public class CesiumMetadataReader : MonoBehaviour
     private bool holdProcessed = false;
     private bool isXRDevice = true;
     private bool wasXRSelectPressed = false;
+    
+    // Interaction feedback (cursor, ring, audio, haptics)
+    private XRInteractionFeedback xrFeedback;
+    
+    // Debounce: prevent rapid successive taps
+    private float lastTapTime = -1f;
+    private const float TAP_DEBOUNCE_INTERVAL = 0.4f;
+    
+    // Loading spinner overlay
+    private GameObject loadingOverlay;
+    private Text loadingText;
+    
+    // Close button on info panel
+    private GameObject closeButton;
 
     void Start()
     {
@@ -138,6 +152,17 @@ public class CesiumMetadataReader : MonoBehaviour
         DetectXRDevice();
         
         CreateMetadataUI();
+        
+        // Initialize XR interaction feedback (cursor, progress ring, audio)
+        if (isXRDevice && useXRInput)
+        {
+            xrFeedback = GetComponent<XRInteractionFeedback>();
+            if (xrFeedback == null)
+            {
+                xrFeedback = gameObject.AddComponent<XRInteractionFeedback>();
+                Debug.Log("<color=green>✅ Added XRInteractionFeedback for cursor, ring, audio & haptics</color>");
+            }
+        }
     }
     
     void DetectXRDevice()
@@ -233,6 +258,69 @@ public class CesiumMetadataReader : MonoBehaviour
         textRect.offsetMax = new Vector2(-10, -10);
         
         metadataPanel.SetActive(false);
+        
+        // === Close button (X) — top-right corner of the info panel ===
+        closeButton = new GameObject("CloseButton");
+        closeButton.transform.SetParent(metadataPanel.transform, false);
+        
+        Image closeBtnImage = closeButton.AddComponent<Image>();
+        closeBtnImage.color = new Color(0.7f, 0.15f, 0.15f, 0.9f);
+        
+        RectTransform closeBtnRect = closeButton.GetComponent<RectTransform>();
+        closeBtnRect.anchorMin = new Vector2(1f, 1f);
+        closeBtnRect.anchorMax = new Vector2(1f, 1f);
+        closeBtnRect.pivot = new Vector2(1f, 1f);
+        closeBtnRect.sizeDelta = new Vector2(60, 60);
+        closeBtnRect.anchoredPosition = new Vector2(-5, -5);
+        
+        GameObject closeTxtObj = new GameObject("CloseText");
+        closeTxtObj.transform.SetParent(closeButton.transform, false);
+        Text closeTxt = closeTxtObj.AddComponent<Text>();
+        closeTxt.text = "✕";
+        closeTxt.font = Font.CreateDynamicFontFromOSFont("Arial", 36);
+        closeTxt.fontSize = 36;
+        closeTxt.color = Color.white;
+        closeTxt.alignment = TextAnchor.MiddleCenter;
+        closeTxt.fontStyle = FontStyle.Bold;
+        RectTransform closeTxtRect = closeTxtObj.GetComponent<RectTransform>();
+        closeTxtRect.anchorMin = Vector2.zero;
+        closeTxtRect.anchorMax = Vector2.one;
+        closeTxtRect.offsetMin = Vector2.zero;
+        closeTxtRect.offsetMax = Vector2.zero;
+        
+        Button closeBtnComponent = closeButton.AddComponent<Button>();
+        closeBtnComponent.targetGraphic = closeBtnImage;
+        closeBtnComponent.onClick.AddListener(() => { HideMetadata(); });
+        
+        // === Loading spinner overlay ===
+        loadingOverlay = new GameObject("LoadingOverlay");
+        loadingOverlay.transform.SetParent(canvasObj.transform, false);
+        
+        Image loadBgImage = loadingOverlay.AddComponent<Image>();
+        loadBgImage.color = new Color(0, 0, 0, 0.75f);
+        
+        RectTransform loadRect = loadingOverlay.GetComponent<RectTransform>();
+        loadRect.anchorMin = new Vector2(0.3f, 0.45f);
+        loadRect.anchorMax = new Vector2(0.7f, 0.55f);
+        loadRect.offsetMin = Vector2.zero;
+        loadRect.offsetMax = Vector2.zero;
+        
+        GameObject loadTxtObj = new GameObject("LoadingText");
+        loadTxtObj.transform.SetParent(loadingOverlay.transform, false);
+        loadingText = loadTxtObj.AddComponent<Text>();
+        loadingText.text = "Loading...";
+        loadingText.font = Font.CreateDynamicFontFromOSFont("Arial", 28);
+        loadingText.fontSize = 28;
+        loadingText.color = Color.white;
+        loadingText.alignment = TextAnchor.MiddleCenter;
+        loadingText.fontStyle = FontStyle.Bold;
+        RectTransform loadTxtRect = loadTxtObj.GetComponent<RectTransform>();
+        loadTxtRect.anchorMin = Vector2.zero;
+        loadTxtRect.anchorMax = Vector2.one;
+        loadTxtRect.offsetMin = Vector2.zero;
+        loadTxtRect.offsetMax = Vector2.zero;
+        
+        loadingOverlay.SetActive(false);
     }
 
     void Update()
@@ -319,7 +407,8 @@ public class CesiumMetadataReader : MonoBehaviour
     void HandleXRInput()
     {
         // HoloLens 2: Detect air tap / pinch via OpenXR input devices
-        // Quick tap = view building data, Hold (0.5s+) = open edit form
+        // Quick tap (< holdDuration) = view building data
+        // Hold (>= holdDuration) then RELEASE = open edit form
         bool currentSelectState = GetXRSelectState();
         
         bool selectPressed = currentSelectState && !wasXRSelectPressed;
@@ -334,33 +423,65 @@ public class CesiumMetadataReader : MonoBehaviour
             holdProcessed = false;
         }
         
-        // Track hold duration
-        if (isHoldingGesture)
+        // Track hold duration and update progress ring
+        if (isHoldingGesture && !holdProcessed)
         {
             holdTimer += Time.deltaTime;
             
-            // Check if hold duration reached and not yet processed
+            // Update visual progress ring via feedback system
+            if (xrFeedback != null)
+            {
+                float progress = Mathf.Clamp01(holdTimer / holdDuration);
+                xrFeedback.SetHoldProgress(progress);
+            }
+            
+            // Mark as hold-ready when threshold reached (but DON'T fire yet — wait for release)
             if (holdTimer >= holdDuration && !holdProcessed)
             {
-                // Hold gesture detected - open edit form
-                Debug.Log("<color=magenta>\U0001f590️ XR HOLD gesture detected → Opening edit form</color>");
-                HandleBuildingClick(true);
                 holdProcessed = true;
-                isHoldingGesture = false;
+                // Visual + audio confirmation that hold threshold reached
+                if (xrFeedback != null) xrFeedback.OnHoldComplete();
+                Debug.Log("<color=magenta>🖐️ XR HOLD threshold reached — release to open edit form</color>");
             }
         }
         
-        // Handle gesture release
-        if (selectReleased)
+        // Handle gesture release — this is where we decide tap vs hold
+        if (selectReleased && isHoldingGesture)
         {
-            if (isHoldingGesture && !holdProcessed)
+            // Debounce check
+            if (Time.time - lastTapTime < TAP_DEBOUNCE_INTERVAL)
             {
-                // Quick tap - view data
-                Debug.Log("<color=cyan>\U0001f446 XR TAP gesture detected → Viewing building data</color>");
+                Debug.Log("<color=yellow>⚡ Debounced — ignoring rapid tap</color>");
+                isHoldingGesture = false;
+                holdTimer = 0f;
+                if (xrFeedback != null) xrFeedback.ResetFeedback();
+                return;
+            }
+            lastTapTime = Time.time;
+            
+            if (holdProcessed)
+            {
+                // Hold gesture completed → open edit form ON RELEASE (not while still pinching)
+                Debug.Log("<color=magenta>🖐️ XR HOLD released → Opening edit form</color>");
+                HandleBuildingClick(true);
+            }
+            else
+            {
+                // Quick tap — view data
+                Debug.Log("<color=cyan>👆 XR TAP gesture detected → Viewing building data</color>");
+                if (xrFeedback != null) xrFeedback.OnTap();
                 HandleBuildingClick(false);
             }
+            
             isHoldingGesture = false;
             holdTimer = 0f;
+            if (xrFeedback != null) xrFeedback.ResetFeedback();
+        }
+        
+        // Handle case where gesture was abandoned (released without hitting threshold and without quick tap)
+        if (selectReleased && !isHoldingGesture)
+        {
+            if (xrFeedback != null) xrFeedback.ResetFeedback();
         }
     }
     
@@ -434,9 +555,16 @@ public class CesiumMetadataReader : MonoBehaviour
             
             if (!isCesiumObject)
             {
-                // Silently ignore non-Cesium objects (terrain, sky, etc.)
+                // Not a building — play miss feedback on XR
+                if (xrFeedback != null) xrFeedback.OnMiss();
                 return;
             }
+            
+            // Highlight the selected building visually
+            Color highlightColor = isRightClick 
+                ? new Color(1f, 0.6f, 0f, 1f)   // Orange for edit mode
+                : new Color(0f, 0.75f, 1f, 1f);  // Cyan for info mode
+            AddBuildingHighlight(clickedObject, highlightColor);
             
             // Get the CesiumPrimitiveFeatures component (on the mesh primitive)
             CesiumPrimitiveFeatures primitiveFeatures = clickedObject.GetComponent<CesiumPrimitiveFeatures>();
@@ -525,21 +653,25 @@ public class CesiumMetadataReader : MonoBehaviour
                                     }
                                     
                                     // Fetch basic attributes using gml_id and open form
+                                    ShowLoadingOverlay("Loading attributes...");
                                     StartCoroutine(energyManager.FetchBasicAttributes(
                                         gmlIdBasic,
                                         (attributesData) => 
                                         {
                                             try
                                             {
+                                                HideLoadingOverlay();
                                                 attributesForm.ShowBuildingForm(gmlId, cachedBuilding);
                                             }
                                             catch (System.Exception ex)
                                             {
+                                                HideLoadingOverlay();
                                                 Debug.LogError($"<color=red>❌ ShowBuildingForm exception: {ex.Message}\n{ex.StackTrace}</color>");
                                             }
                                         },
                                         (error) =>
                                         {
+                                            HideLoadingOverlay();
                                             Debug.LogError($"<color=red>❌ Failed to fetch attributes for '{gmlIdBasic}': {error}</color>");
                                         }
                                     ));
@@ -561,6 +693,11 @@ public class CesiumMetadataReader : MonoBehaviour
                 // Invalid feature IDs are common for terrain and base tiles - silently ignore
             }
             // CesiumPrimitiveFeatures missing is normal for terrain/base tiles - silently ignore
+        }
+        else
+        {
+            // Raycast missed everything — feedback
+            if (xrFeedback != null) xrFeedback.OnMiss();
         }
     }
     
@@ -676,6 +813,9 @@ public class CesiumMetadataReader : MonoBehaviour
     /// </summary>
     IEnumerator FetchThenOpenForm(string gmlId)
     {
+        // Show loading overlay
+        ShowLoadingOverlay("Fetching building data...");
+        
         // Use RefreshSingleBuilding to fetch by modified_gml_id and populate cache
         yield return energyManager.RefreshSingleBuilding(gmlId);
         
@@ -689,6 +829,8 @@ public class CesiumMetadataReader : MonoBehaviour
             string gmlIdBasic = cachedBuilding.gmlIdBasic;
             if (!string.IsNullOrEmpty(gmlIdBasic))
             {
+                ShowLoadingOverlay("Loading attributes...");
+                
                 // Fetch basic attributes and open form
                 yield return energyManager.FetchBasicAttributes(
                     gmlIdBasic,
@@ -696,26 +838,31 @@ public class CesiumMetadataReader : MonoBehaviour
                     {
                         try
                         {
+                            HideLoadingOverlay();
                             attributesForm.ShowBuildingForm(gmlId, cachedBuilding);
                         }
                         catch (System.Exception ex)
                         {
+                            HideLoadingOverlay();
                             Debug.LogError($"<color=red>❌ Exception in ShowBuildingForm(): {ex.Message}\n{ex.StackTrace}</color>");
                         }
                     },
                     (error) =>
                     {
+                        HideLoadingOverlay();
                         Debug.LogWarning($"<color=yellow>⚠️ Failed to fetch attributes for '{gmlIdBasic}': {error}</color>");
                     }
                 );
             }
             else
             {
+                HideLoadingOverlay();
                 Debug.LogWarning($"<color=yellow>⚠️ Building '{gmlId}' has no gml_id in API response</color>");
             }
         }
         else
         {
+            HideLoadingOverlay();
             Debug.Log($"<color=yellow>ℹ️ Building '{gmlId}' has no energy data in the database.</color>");
         }
     }
@@ -1007,6 +1154,29 @@ public class CesiumMetadataReader : MonoBehaviour
         
         Debug.Log($"<color=cyan>🔄 Refreshing Building Information panel for: {currentDisplayedGmlId}</color>");
         DisplayBuildingDataFromCache(currentDisplayedGmlId, currentDisplayedObjectName, currentDisplayedFeatureId);
+    }
+
+    // === LOADING OVERLAY ===
+    
+    void ShowLoadingOverlay(string message = "Loading...")
+    {
+        if (loadingOverlay != null)
+        {
+            loadingOverlay.SetActive(true);
+            if (loadingText != null) loadingText.text = message;
+            
+            // reposition canvas in front of user on HoloLens
+            if (isXRDevice)
+            {
+                GameObject metadataCanvas = GameObject.Find("MetadataCanvas");
+                if (metadataCanvas != null) PositionCanvasInFrontOfCamera(metadataCanvas);
+            }
+        }
+    }
+    
+    void HideLoadingOverlay()
+    {
+        if (loadingOverlay != null) loadingOverlay.SetActive(false);
     }
 
     void OnDestroy()

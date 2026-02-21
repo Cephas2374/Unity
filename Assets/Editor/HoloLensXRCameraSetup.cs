@@ -54,6 +54,15 @@ public class HoloLensXRCameraSetup
             Debug.Log($"<color=green>✅ Added HoloLensNavigationUI to {mainCam.name} for AR navigation</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
+
+        // Auto-add XRInteractionFeedback for gaze cursor, progress ring, audio & haptics
+        XRInteractionFeedback xrFeedback = mainCam.GetComponent<XRInteractionFeedback>();
+        if (xrFeedback == null)
+        {
+            mainCam.gameObject.AddComponent<XRInteractionFeedback>();
+            Debug.Log($"<color=green>✅ Added XRInteractionFeedback to {mainCam.name} for interaction feedback</color>");
+            EditorUtility.SetDirty(mainCam.gameObject);
+        }
     }
 
     [MenuItem("Tools/HoloLens/Setup Main Camera for XR")]
