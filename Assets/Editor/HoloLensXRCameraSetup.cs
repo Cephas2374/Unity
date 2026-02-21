@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEngine.SpatialTracking;
-using UnityEngine.Rendering;
 
 /// <summary>
 /// CRITICAL: Auto-configures Main Camera for HoloLens 2 XR tracking.
@@ -9,7 +8,7 @@ using UnityEngine.Rendering;
 /// 
 /// Fixes applied:
 /// 1. TrackedPoseDriver for 6DOF head tracking
-/// 2. ClearFlags → SolidColor with transparent black (required for AR see-through)
+/// 2. ClearFlags → Skybox (renders CesiumSkyWithClouds procedural sky + clouds)
 /// 3. ForceOpaqueAlpha for MRC video capture
 /// 4. HoloLensNavigationUI for AR navigation buttons
 /// 5. XRInteractionFeedback for cursor, ring, audio & haptics
@@ -32,21 +31,17 @@ public class HoloLensXRCameraSetup
             return;
         }
 
-        // === CRITICAL: Camera clear flags for HoloLens 2 AR ===
-        // HoloLens 2 is a see-through AR device. ClearFlags MUST be SolidColor
-        // with transparent black (0,0,0,0) so the real world shows through.
-        // Skybox mode renders an opaque background that occludes/hides terrain tiles.
-        if (mainCam.clearFlags != CameraClearFlags.SolidColor)
+        // === Camera clear flags: Skybox for immersive 3D scene ===
+        // Using Skybox mode so the CesiumSkyWithClouds procedural skybox renders
+        // behind the Cesium terrain. This gives a natural sky with volumetric clouds.
+        //
+        // NOTE: If you want AR see-through mode (real world visible behind holograms),
+        // change to CameraClearFlags.SolidColor with backgroundColor = (0,0,0,0).
+        // ForceOpaqueAlpha.cs handles MRC alpha in both modes.
+        if (mainCam.clearFlags != CameraClearFlags.Skybox)
         {
-            mainCam.clearFlags = CameraClearFlags.SolidColor;
-            mainCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
-            Debug.Log($"<color=green>✅ Set {mainCam.name} clearFlags=SolidColor, bg=transparent for HoloLens 2 AR</color>");
-            EditorUtility.SetDirty(mainCam.gameObject);
-        }
-        else if (mainCam.backgroundColor.a > 0.01f)
-        {
-            mainCam.backgroundColor = new Color(0f, 0f, 0f, 0f);
-            Debug.Log($"<color=green>✅ Set {mainCam.name} background to transparent black for AR</color>");
+            mainCam.clearFlags = CameraClearFlags.Skybox;
+            Debug.Log($"<color=green>✅ Set {mainCam.name} clearFlags=Skybox for CesiumSkyWithClouds</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
 

@@ -45,6 +45,7 @@ public class CesiumShaderProtection : IPreprocessBuildWithReport
             "Unlit/Color",                       // Fallback for untextured tiles
             "Hidden/Internal-Colored",           // Unity built-in, used by various systems
             "Hidden/ForceAlphaOnly",             // ForceOpaqueAlpha MRC alpha fix shader
+            "Skybox/CesiumSkyWithClouds",        // Procedural sky + volumetric clouds
             "Sprites/Default",                   // Used by XRInteractionFeedback cursor/ring
             "Legacy Shaders/Diffuse",            // Cesium fallback
         };
