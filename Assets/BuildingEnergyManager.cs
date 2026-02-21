@@ -94,6 +94,19 @@ public class BuildingEnergyManager : MonoBehaviour
     private Dictionary<string, DateTime> buildingLastUpdated = new Dictionary<string, DateTime>(); // Track update timestamps
     private bool isPollingForUpdates = false; // Prevent concurrent polling
     
+    // Cached reference — avoids FindObjectOfType (expensive scene scan) on every call
+    private CesiumFeatureColorizer cachedColorizer;
+    
+    /// <summary>
+    /// Returns the cached CesiumFeatureColorizer. Looks it up once, then reuses.
+    /// </summary>
+    private CesiumFeatureColorizer GetColorizer()
+    {
+        if (cachedColorizer == null)
+            cachedColorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        return cachedColorizer;
+    }
+    
     [Header("Cache Management")]
     [Tooltip("Last cache update timestamp")]
     public string lastCacheUpdate = "Never";
@@ -629,7 +642,7 @@ public class BuildingEnergyManager : MonoBehaviour
     /// </summary>
     private void NotifyColorizerDataReady()
     {
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer != null)
         {
             Debug.Log($"<color=green>✅ Notifying colorizer: {buildingDataCache.Count} buildings, {buildingColorCache.Count} colors ready</color>");
@@ -796,7 +809,7 @@ public class BuildingEnergyManager : MonoBehaviour
     /// </summary>
     private void UpdateBuildingVisual(string gmlId)
     {
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer != null)
         {
             // Get the color for this building
@@ -1120,7 +1133,7 @@ public class BuildingEnergyManager : MonoBehaviour
         Debug.Log("<color=cyan>=== Smart Caching: Downloading ONLY buildings from tileset ===</color>");
         
         // Step 1: Scan tileset to find which buildings we actually need
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer == null)
         {
             Debug.LogError("<color=red>❌ CesiumFeatureColorizer not found! Falling back to download all buildings</color>");
@@ -1377,7 +1390,7 @@ public class BuildingEnergyManager : MonoBehaviour
                 }
                 
                 // Now that data is loaded, recolor all existing tiles with the real energy data
-                CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+                CesiumFeatureColorizer colorizer = GetColorizer();
                 if (colorizer != null)
                 {
                     Debug.Log($"<color=green>✓ Data loaded! Cache: {buildingDataCache.Count} buildings, {buildingColorCache.Count} colors</color>");
@@ -1874,7 +1887,7 @@ public class BuildingEnergyManager : MonoBehaviour
                                 if (newColor != Color.clear)
                                 {
                                     Debug.Log($"<color=green>🎨 Applying color: #{ColorUtility.ToHtmlStringRGB(newColor)}</color>");
-                                    CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+                                    CesiumFeatureColorizer colorizer = GetColorizer();
                                     if (colorizer != null)
                                     {
                                         colorizer.RecolorSingleBuilding(gmlId, newColor);
@@ -2511,7 +2524,7 @@ public class BuildingEnergyManager : MonoBehaviour
                                 Debug.Log($"✅ Added {gmlId} to cache from individual fetch (Color: #{ColorUtility.ToHtmlStringRGB(buildingColor)})");
                                 
                                 // Update the building visual
-                                CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+                                CesiumFeatureColorizer colorizer = GetColorizer();
                                 if (colorizer != null)
                                 {
                                     colorizer.RecolorSingleBuilding(gmlId, buildingColor);
@@ -2632,7 +2645,7 @@ public class BuildingEnergyManager : MonoBehaviour
         
         // Check components
         Debug.Log($"<color=yellow>🧩 Component Status:</color>");
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         Debug.Log($"<color=yellow>   CesiumFeatureColorizer Found: {colorizer != null}</color>");
         Debug.Log($"<color=yellow>   BuildingsTileset Found: {buildingsTileset != null}</color>");
         
@@ -2786,7 +2799,7 @@ public class BuildingEnergyManager : MonoBehaviour
         Debug.Log($"<color=yellow>Buildings in API cache: {buildingColorCache.Count}</color>");
         
         // Get buildings from tileset via feature colorizer
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer == null)
         {
             Debug.LogError("<color=red>❌ CesiumFeatureColorizer not found in scene</color>");
@@ -2853,7 +2866,7 @@ public class BuildingEnergyManager : MonoBehaviour
         Debug.Log($"<color=cyan>📅 Last Updated: {lastCacheUpdate}</color>");
         
         // Also show tileset comparison if available
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer != null)
         {
             int tilesetCount = colorizer.GetTilesetBuildingCount();
@@ -2896,7 +2909,7 @@ public class BuildingEnergyManager : MonoBehaviour
     [ContextMenu("DIAGNOSTIC: Find White Buildings")]
     public void ContextMenu_FindWhiteBuildings()
     {
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer == null)
         {
             Debug.LogError("CesiumFeatureColorizer not found in scene!");
@@ -2926,7 +2939,7 @@ public class BuildingEnergyManager : MonoBehaviour
     [ContextMenu("EMERGENCY: Force Color All White Buildings")]
     public void ContextMenu_ForceColorWhiteBuildings()
     {
-        CesiumFeatureColorizer colorizer = FindObjectOfType<CesiumFeatureColorizer>();
+        CesiumFeatureColorizer colorizer = GetColorizer();
         if (colorizer == null)
         {
             Debug.LogError("CesiumFeatureColorizer not found in scene!");

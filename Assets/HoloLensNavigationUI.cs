@@ -50,7 +50,7 @@ public class HoloLensNavigationUI : MonoBehaviour
     public float panelDistance = 0.6f;
     
     [Tooltip("Vertical offset below eye level (meters)")]
-    public float panelVerticalOffset = -0.3f;
+    public float panelVerticalOffset = -0.05f;
     
     [Tooltip("Scale of the navigation panel")]
     public float panelScale = 0.0003f;
@@ -103,6 +103,10 @@ public class HoloLensNavigationUI : MonoBehaviour
     private int hoveredButtonIndex = -1;
     private bool wasXRPinching = false;
 
+    // Visible hand ray (LineRenderer)
+    private LineRenderer handRayLine;
+    private const float RAY_MAX_DISTANCE = 5f;
+
     // Cached references to avoid per-frame allocations (GC pressure crashes HoloLens 2)
     private CesiumForUnity.CesiumGeoreference cachedGeoRef;
     private readonly List<InputDevice> cachedDevices = new List<InputDevice>();
@@ -133,6 +137,7 @@ public class HoloLensNavigationUI : MonoBehaviour
         uiLayerMask = 1 << UI_LAYER;
         
         CreateNavigationPanel();
+        CreateHandRay();
         Debug.Log("<color=cyan>[HoloLensNav] Navigation panel created with XR interaction.</color>");
         Debug.Log("<color=cyan>[HoloLensNav] Point your hand at buttons and air-tap/pinch to navigate.</color>");
     }
@@ -145,6 +150,7 @@ public class HoloLensNavigationUI : MonoBehaviour
         if (isXRDevice)
         {
             HandleXRButtonInteraction();
+            UpdateHandRayVisual();
         }
         
         // Apply continuous movement based on active buttons
@@ -378,6 +384,97 @@ public class HoloLensNavigationUI : MonoBehaviour
                 return true;
         }
         return false;
+    }
+    
+    // === HAND RAY VISUAL ===
+    
+    /// <summary>
+    /// Creates a visible ray line from hand to target, so the user can see where they're pointing.
+    /// Uses LineRenderer for a thin, bright line with a gradient fade.
+    /// </summary>
+    void CreateHandRay()
+    {
+        GameObject rayObj = new GameObject("HandRayPointer");
+        handRayLine = rayObj.AddComponent<LineRenderer>();
+        handRayLine.positionCount = 2;
+        handRayLine.startWidth = 0.002f;
+        handRayLine.endWidth = 0.001f;
+        handRayLine.useWorldSpace = true;
+        handRayLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        handRayLine.receiveShadows = false;
+        
+        // Simple unlit material — visible in XR
+        Material rayMat = new Material(Shader.Find("Sprites/Default"));
+        rayMat.renderQueue = 4000; // Render on top
+        handRayLine.material = rayMat;
+        
+        // Gradient: bright cyan at hand, fading to transparent at end
+        Gradient gradient = new Gradient();
+        gradient.SetKeys(
+            new GradientColorKey[] {
+                new GradientColorKey(new Color(0f, 0.8f, 1f), 0f),
+                new GradientColorKey(new Color(0f, 0.8f, 1f), 0.7f),
+                new GradientColorKey(Color.white, 1f)
+            },
+            new GradientAlphaKey[] {
+                new GradientAlphaKey(0.9f, 0f),
+                new GradientAlphaKey(0.5f, 0.7f),
+                new GradientAlphaKey(0.0f, 1f)
+            }
+        );
+        handRayLine.colorGradient = gradient;
+        handRayLine.enabled = false;
+    }
+    
+    /// <summary>
+    /// Updates the visible ray each frame: origin at hand, end at hit point or max distance.
+    /// Turns brighter when pointing at a button, even brighter when pinching.
+    /// </summary>
+    void UpdateHandRayVisual()
+    {
+        if (handRayLine == null) return;
+        
+        Ray ray = GetXRPointingRay();
+        
+        // Check if this is from actual hand (not head gaze fallback)
+        // Head gaze fallback starts at camera position — don't show ray from face
+        bool isHandRay = Vector3.Distance(ray.origin, mainCamera.transform.position) > 0.05f;
+        
+        if (!isHandRay)
+        {
+            handRayLine.enabled = false;
+            return;
+        }
+        
+        handRayLine.enabled = true;
+        
+        // Determine end point: hit surface or max distance
+        RaycastHit hit;
+        Vector3 endPoint;
+        if (Physics.Raycast(ray, out hit, RAY_MAX_DISTANCE))
+        {
+            endPoint = hit.point;
+        }
+        else
+        {
+            endPoint = ray.origin + ray.direction * RAY_MAX_DISTANCE;
+        }
+        
+        handRayLine.SetPosition(0, ray.origin);
+        handRayLine.SetPosition(1, endPoint);
+        
+        // Change ray appearance based on state
+        bool isPinching = GetXRSelectState();
+        if (isPinching)
+        {
+            handRayLine.startWidth = 0.004f;
+            handRayLine.endWidth = 0.002f;
+        }
+        else
+        {
+            handRayLine.startWidth = 0.002f;
+            handRayLine.endWidth = 0.001f;
+        }
     }
     
     // === PANEL POSITIONING ===
@@ -735,6 +832,7 @@ public class HoloLensNavigationUI : MonoBehaviour
     void OnDestroy()
     {
         IsXRButtonActive = false;
+        if (handRayLine != null) Destroy(handRayLine.gameObject);
         if (navPanel != null) Destroy(navPanel);
     }
 }
