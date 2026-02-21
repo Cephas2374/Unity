@@ -43,11 +43,17 @@ public class CesiumShaderProtection : IPreprocessBuildWithReport
             "Standard",                          // Unity Standard — Cesium default opaque
             "Unlit/Texture",                     // Cesium uses for some imagery overlays
             "Unlit/Color",                       // Fallback for untextured tiles
-            "Hidden/Internal-Colored",           // Unity built-in, used by various systems
             "Hidden/ForceAlphaOnly",             // ForceOpaqueAlpha MRC alpha fix shader
             "Skybox/CesiumSkyWithClouds",        // Procedural sky + volumetric clouds
             "Sprites/Default",                   // Used by XRInteractionFeedback cursor/ring
             "Legacy Shaders/Diffuse",            // Cesium fallback
+        };
+
+        // Also remove Hidden/Internal-Colored if it was added previously — it has
+        // HideFlags.DontSave and causes "Failed to write file" build errors.
+        string[] forbiddenShaderNames = new string[]
+        {
+            "Hidden/Internal-Colored",
         };
 
         SerializedObject graphicsSettings = new SerializedObject(
@@ -56,6 +62,27 @@ public class CesiumShaderProtection : IPreprocessBuildWithReport
 
         bool changed = false;
 
+        // Remove forbidden shaders that break UWP builds
+        for (int i = alwaysIncluded.arraySize - 1; i >= 0; i--)
+        {
+            var element = alwaysIncluded.GetArrayElementAtIndex(i);
+            if (element.objectReferenceValue != null)
+            {
+                string name = ((Shader)element.objectReferenceValue).name;
+                foreach (string forbidden in forbiddenShaderNames)
+                {
+                    if (name == forbidden)
+                    {
+                        alwaysIncluded.DeleteArrayElementAtIndex(i);
+                        Debug.Log($"<color=yellow>⚠️ Removed '{forbidden}' from Always Included Shaders (HideFlags.DontSave breaks builds)</color>");
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Add required shaders
         foreach (string shaderName in requiredShaderNames)
         {
             Shader shader = Shader.Find(shaderName);
