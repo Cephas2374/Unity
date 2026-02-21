@@ -50,7 +50,7 @@ Shader "Hidden/ForceAlphaOnly"
                 UNITY_INITIALIZE_OUTPUT(v2f, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 o.pos = UnityObjectToClipPos(v.vertex);
-                o.uv = v.texcoord;
+                o.uv = v.uv;
                 return o;
             }
 
