@@ -32,7 +32,7 @@ public class CesiumSkySetup
 
         // Load existing material or create a new one
         Material mat = AssetDatabase.LoadAssetAtPath<Material>(MAT_PATH);
-        if (mat == null || mat.shader != skyShader || !mat.HasProperty("_SkyMidColor"))
+        if (mat == null || mat.shader != skyShader || !mat.HasProperty("_CloudMinElev"))
         {
             // Recreate material to pick up new/changed shader properties
             if (mat != null)

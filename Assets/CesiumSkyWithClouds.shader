@@ -39,11 +39,12 @@ Shader "Skybox/CesiumSkyWithClouds"
         _CloudColor    ("Lit Color",       Color) = (1, 1, 1, 1)
         _CloudShadow   ("Shadow Color",    Color) = (0.58, 0.62, 0.72, 1)
         _CloudAmbient  ("Ambient Color",   Color) = (0.72, 0.76, 0.85, 1)
-        _CloudCoverage ("Coverage",        Range(0, 1)) = 0.42
-        _CloudSoftness ("Edge Softness",   Range(0.02, 0.6)) = 0.20
+        _CloudCoverage ("Coverage",        Range(0, 1)) = 0.35
+        _CloudSoftness ("Edge Softness",   Range(0.02, 0.6)) = 0.22
         _CloudSpeed    ("Wind Speed",      Range(0, 0.1)) = 0.008
         _CloudScale    ("Scale",           Range(2, 40)) = 8
-        _CloudAltitude ("Altitude",        Range(0.02, 0.5)) = 0.12
+        _CloudAltitude ("Altitude",        Range(0.02, 2.0)) = 0.55
+        _CloudMinElev  ("Min Elevation",   Range(0.05, 0.5)) = 0.15
         _CloudOpacity  ("Max Opacity",     Range(0, 1)) = 0.92
         _CloudDetail   ("Detail Amount",   Range(0, 1)) = 0.45
         _CloudBrightTop("Top Brightness",  Range(0.5, 2)) = 1.3
@@ -74,6 +75,7 @@ Shader "Skybox/CesiumSkyWithClouds"
             half  _CloudCoverage, _CloudSoftness, _CloudSpeed;
             half  _CloudScale, _CloudAltitude, _CloudOpacity;
             half  _CloudDetail, _CloudBrightTop, _ShadowOffset;
+            half  _CloudMinElev;
 
             // ---- Structs ----
             struct appdata
@@ -274,9 +276,11 @@ Shader "Skybox/CesiumSkyWithClouds"
                 sky += _SunColor.rgb * disk * 3.0;
 
                 // ---- Volumetric cumulus clouds ----
-                if (y > 0.003)
+                // Only render clouds above the minimum elevation angle.
+                // This keeps the horizon clear so terrain/buildings are visible.
+                if (y > _CloudMinElev)
                 {
-                    // Project view ray onto flat cloud plane
+                    // Project view ray onto flat cloud plane at high altitude
                     float2 uv = d.xz / (y + _CloudAltitude) * _CloudScale;
                     float  t  = _Time.y * _CloudSpeed;
 
@@ -318,8 +322,8 @@ Shader "Skybox/CesiumSkyWithClouds"
                         // === Opacity ===
                         // Density × master opacity, S-curve for natural buildup
                         float alpha = smoothstep(0.0, 0.6, dens) * _CloudOpacity;
-                        // Fade near horizon to avoid hard cutoff
-                        alpha *= smoothstep(0.003, 0.15, y);
+                        // Fade near minimum elevation to avoid hard cutoff
+                        alpha *= smoothstep(_CloudMinElev, _CloudMinElev + 0.15, y);
                         // Slight fade at very high angles (sky dome edge)
                         alpha *= smoothstep(0.98, 0.85, y);
 
