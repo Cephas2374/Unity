@@ -107,7 +107,13 @@ public class SetHoloLensAppIcon : IPreprocessBuildWithReport, IPostprocessBuildW
         SetAllScales(logoPath, PlayerSettings.WSAImageType.UWPSquare310x310Logo);
         SetAllScales(logoPath, PlayerSettings.WSAImageType.UWPWide310x150Logo);
         SetAllScales(logoPath, PlayerSettings.WSAImageType.SplashScreenImage);
-        SetAllScales(logoPath, PlayerSettings.WSAImageType.StoreTileLogo);
+
+        // Store logo — use PackageLogo type
+        PlayerSettings.WSA.SetVisualAssetsImage(logoPath, PlayerSettings.WSAImageType.PackageLogo, PlayerSettings.WSAImageScale._100);
+        PlayerSettings.WSA.SetVisualAssetsImage(logoPath, PlayerSettings.WSAImageType.PackageLogo, PlayerSettings.WSAImageScale._125);
+        PlayerSettings.WSA.SetVisualAssetsImage(logoPath, PlayerSettings.WSAImageType.PackageLogo, PlayerSettings.WSAImageScale._150);
+        PlayerSettings.WSA.SetVisualAssetsImage(logoPath, PlayerSettings.WSAImageType.PackageLogo, PlayerSettings.WSAImageScale._200);
+        PlayerSettings.WSA.SetVisualAssetsImage(logoPath, PlayerSettings.WSAImageType.PackageLogo, PlayerSettings.WSAImageScale._400);
 
         AssetDatabase.SaveAssets();
         Debug.Log($"<color=green>✅ HoloLens app icon set from {logoPath} for all UWP tile sizes.</color>");
