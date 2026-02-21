@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR;
+using System.Collections.Generic;
 
 /// <summary>
 /// HoloLens 2 Navigation Controller
@@ -18,6 +20,16 @@ using UnityEngine.UI;
 /// A = Strafe Left    S = Backward    D = Strafe Right
 /// R = Move Up        F = Move Down
 /// Y = Yaw Left       X = Move Down (alt)  C = Yaw Right
+///
+/// XR Interaction (HoloLens 2):
+///   Standard GraphicRaycaster does NOT work with XR hand rays, so this script
+///   implements its own gaze/hand-ray + air-tap interaction:
+///   - Each button has a BoxCollider for Physics.Raycast
+///   - Hand ray (or head gaze fallback) identifies hovered button
+///   - Air tap (pinch) presses the button
+///   - Hold pinch for continuous navigation movement
+///   - Release to stop
+///   - EventTrigger kept as fallback for Editor/Desktop mouse interaction
 ///
 /// The panel follows the user and can be toggled with a dedicated button.
 /// </summary>
@@ -46,6 +58,12 @@ public class HoloLensNavigationUI : MonoBehaviour
     [Header("XR Settings")]
     public bool isXRDevice = true;
     
+    /// <summary>
+    /// Static flag: true when an XR navigation button is actively being held.
+    /// CesiumMetadataReader checks this to avoid conflicting XR input.
+    /// </summary>
+    public static bool IsXRButtonActive { get; private set; }
+    
     // Movement state (which directions are currently active)
     private bool moveForward, moveBackward, moveLeft, moveRight;
     private bool moveUp, moveDown;
@@ -60,9 +78,30 @@ public class HoloLensNavigationUI : MonoBehaviour
     
     // Color scheme
     private Color btnNormal = new Color(0.15f, 0.15f, 0.15f, 0.85f);
+    private Color btnHover = new Color(0.25f, 0.35f, 0.55f, 0.90f);
     private Color btnPressed = new Color(0.0f, 0.47f, 0.84f, 0.95f);
     private Color btnToggle = new Color(0.0f, 0.65f, 0.31f, 0.90f);
     private Color textColor = Color.white;
+    
+    // === XR Button Interaction ===
+    
+    /// <summary>Tracks a UI button for direct XR raycast interaction.</summary>
+    private class XRButtonData
+    {
+        public GameObject gameObject;
+        public BoxCollider collider;
+        public Image image;
+        public System.Action onPress;     // Called on pinch start (hold buttons)
+        public System.Action onRelease;   // Called on pinch release
+        public bool isHoldButton;         // true = press-and-hold (nav), false = tap (toggle/action)
+        public bool isPressed;
+        public Color normalColor;         // Rest color (changes for toggle buttons)
+    }
+    
+    private List<XRButtonData> xrButtons = new List<XRButtonData>();
+    private XRButtonData activeHoldButton = null;   // Currently held nav button
+    private int hoveredButtonIndex = -1;
+    private bool wasXRPinching = false;
     
     void Start()
     {
@@ -81,14 +120,37 @@ public class HoloLensNavigationUI : MonoBehaviour
         }
         
         CreateNavigationPanel();
-        Debug.Log("<color=cyan>[HoloLensNav] Navigation panel created. Tap buttons to fly through the city.</color>");
+        Debug.Log("<color=cyan>[HoloLensNav] Navigation panel created with XR interaction.</color>");
+        Debug.Log("<color=cyan>[HoloLensNav] Point your hand at buttons and air-tap/pinch to navigate.</color>");
     }
     
     void Update()
     {
         if (mainCamera == null) return;
         
+        // XR button interaction: hand ray + pinch
+        if (isXRDevice)
+        {
+            HandleXRButtonInteraction();
+        }
+        
         // Apply continuous movement based on active buttons
+        ApplyMovement();
+    }
+    
+    void LateUpdate()
+    {
+        // Keep panel positioned relative to user
+        if (navPanel != null && panelVisible && mainCamera != null)
+        {
+            PositionPanel();
+        }
+    }
+    
+    // === MOVEMENT ===
+    
+    void ApplyMovement()
+    {
         float speed = isBoosting ? fastMoveSpeed : moveSpeed;
         float dt = Time.deltaTime;
         
@@ -144,14 +206,168 @@ public class HoloLensNavigationUI : MonoBehaviour
         }
     }
     
-    void LateUpdate()
+    // === XR BUTTON INTERACTION ===
+    
+    /// <summary>
+    /// Handles XR hand-ray / gaze + air-tap interaction with navigation buttons.
+    /// Uses Physics.Raycast against BoxColliders on buttons, bypassing EventSystem
+    /// which doesn't support XR hand rays with standard GraphicRaycaster.
+    /// </summary>
+    void HandleXRButtonInteraction()
     {
-        // Keep panel positioned relative to user
-        if (navPanel != null && panelVisible && mainCamera != null)
+        bool currentPinch = GetXRSelectState();
+        
+        // If a hold-button is actively held, keep it until pinch is released
+        // (user can look away while holding — button stays active)
+        if (activeHoldButton != null)
         {
-            PositionPanel();
+            if (!currentPinch)
+            {
+                // Released pinch → release the held button
+                activeHoldButton.onRelease?.Invoke();
+                activeHoldButton.image.color = activeHoldButton.normalColor;
+                activeHoldButton.isPressed = false;
+                activeHoldButton = null;
+                IsXRButtonActive = false;
+            }
+            wasXRPinching = currentPinch;
+            return; // Don't process other interactions while holding a nav button
         }
+        
+        // Cast ray to find which button (if any) the user is pointing at
+        Ray ray = GetXRPointingRay();
+        RaycastHit hit;
+        int hitIndex = -1;
+        
+        if (Physics.Raycast(ray, out hit, 3f))
+        {
+            for (int i = 0; i < xrButtons.Count; i++)
+            {
+                if (xrButtons[i].collider != null && xrButtons[i].collider == hit.collider)
+                {
+                    hitIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        // Update hover highlight
+        if (hitIndex != hoveredButtonIndex)
+        {
+            // Unhighlight previous
+            if (hoveredButtonIndex >= 0 && hoveredButtonIndex < xrButtons.Count
+                && !xrButtons[hoveredButtonIndex].isPressed)
+            {
+                xrButtons[hoveredButtonIndex].image.color = xrButtons[hoveredButtonIndex].normalColor;
+            }
+            // Highlight new
+            if (hitIndex >= 0 && !xrButtons[hitIndex].isPressed)
+            {
+                xrButtons[hitIndex].image.color = btnHover;
+            }
+            hoveredButtonIndex = hitIndex;
+        }
+        
+        // Handle pinch start on a button
+        if (currentPinch && !wasXRPinching && hitIndex >= 0)
+        {
+            var btn = xrButtons[hitIndex];
+            
+            if (btn.isHoldButton)
+            {
+                // Hold button (navigation): start continuous action
+                btn.onPress?.Invoke();
+                btn.image.color = btnPressed;
+                btn.isPressed = true;
+                activeHoldButton = btn;
+                IsXRButtonActive = true;
+            }
+            else
+            {
+                // Tap button (toggle/action): visual press feedback
+                btn.image.color = btnPressed;
+                btn.isPressed = true;
+            }
+        }
+        
+        // Handle pinch release for tap buttons
+        if (!currentPinch && wasXRPinching)
+        {
+            for (int i = 0; i < xrButtons.Count; i++)
+            {
+                if (xrButtons[i].isPressed && !xrButtons[i].isHoldButton)
+                {
+                    // Fire action only if still pointing at the same button
+                    if (i == hitIndex)
+                    {
+                        xrButtons[i].onRelease?.Invoke();
+                    }
+                    xrButtons[i].image.color = xrButtons[i].normalColor;
+                    xrButtons[i].isPressed = false;
+                }
+            }
+        }
+        
+        wasXRPinching = currentPinch;
     }
+    
+    /// <summary>
+    /// Gets the pointing ray from XR hand tracking, or falls back to head gaze.
+    /// On HoloLens 2, this returns the hand aim ray (extends from hand toward target).
+    /// </summary>
+    Ray GetXRPointingRay()
+    {
+        var devices = new List<InputDevice>();
+        
+        // Try right hand first (most users are right-handed)
+        InputDevices.GetDevicesWithCharacteristics(
+            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, devices);
+        if (devices.Count == 0)
+            InputDevices.GetDevicesWithCharacteristics(
+                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, devices);
+        if (devices.Count == 0)
+            InputDevices.GetDevicesWithCharacteristics(
+                InputDeviceCharacteristics.HandTracking, devices);
+        
+        foreach (var device in devices)
+        {
+            Vector3 pos;
+            Quaternion rot;
+            bool hasPos = device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
+            bool hasRot = device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
+            
+            if (hasPos && hasRot && pos != Vector3.zero)
+                return new Ray(pos, rot * Vector3.forward);
+        }
+        
+        // Fallback: head gaze (camera forward)
+        return new Ray(mainCamera.transform.position, mainCamera.transform.forward);
+    }
+    
+    /// <summary>
+    /// Reads XR air-tap / pinch state from all input devices.
+    /// On HoloLens 2, pinch gesture maps to triggerButton / trigger axis via OpenXR.
+    /// </summary>
+    bool GetXRSelectState()
+    {
+        var devices = new List<InputDevice>();
+        InputDevices.GetDevices(devices);
+        
+        foreach (var device in devices)
+        {
+            bool value;
+            if (device.TryGetFeatureValue(CommonUsages.primaryButton, out value) && value)
+                return true;
+            if (device.TryGetFeatureValue(CommonUsages.triggerButton, out value) && value)
+                return true;
+            float axis;
+            if (device.TryGetFeatureValue(CommonUsages.trigger, out axis) && axis > 0.5f)
+                return true;
+        }
+        return false;
+    }
+    
+    // === PANEL POSITIONING ===
     
     void PositionPanel()
     {
@@ -170,6 +386,8 @@ public class HoloLensNavigationUI : MonoBehaviour
         navPanel.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
     }
     
+    // === UI CREATION ===
+    
     void CreateNavigationPanel()
     {
         // Create canvas
@@ -179,7 +397,7 @@ public class HoloLensNavigationUI : MonoBehaviour
         
         CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
         scaler.dynamicPixelsPerUnit = 10f;
-        canvasObj.AddComponent<GraphicRaycaster>();
+        canvasObj.AddComponent<GraphicRaycaster>(); // Kept for Desktop/Editor fallback
         
         RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
         canvasRect.sizeDelta = new Vector2(700, 500);
@@ -192,37 +410,36 @@ public class HoloLensNavigationUI : MonoBehaviour
         Image bgImage = bgObj.AddComponent<Image>();
         bgImage.color = new Color(0.05f, 0.05f, 0.05f, 0.7f);
         
-        // Title
+        // Title with interaction hint
         GameObject titleObj = CreateUIElement("Title", bgObj, new Vector2(700, 50));
         RectTransform titleRect = titleObj.GetComponent<RectTransform>();
         titleRect.anchoredPosition = new Vector2(0, 200);
         Text titleText = titleObj.AddComponent<Text>();
-        titleText.text = "Navigation";
+        titleText.text = "Navigation — Point & Pinch";
         titleText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        titleText.fontSize = 32;
+        titleText.fontSize = 28;
         titleText.alignment = TextAnchor.MiddleCenter;
         titleText.color = textColor;
         
         // === ROW 1: Q W E ===
         float row1Y = 120f;
-        CreateNavButton(bgObj, "Q  ↰", -200, row1Y, () => rotateLeft = true, () => rotateLeft = false, "Rotate Left");
-        CreateNavButton(bgObj, "W  ↑", 0, row1Y, () => moveForward = true, () => moveForward = false, "Forward");
-        CreateNavButton(bgObj, "E  ↗", 200, row1Y, () => rotateRight = true, () => rotateRight = false, "Rotate Right");
+        CreateNavButton(bgObj, "Q  ↰", -200, row1Y, () => rotateLeft = true, () => rotateLeft = false);
+        CreateNavButton(bgObj, "W  ↑", 0, row1Y, () => moveForward = true, () => moveForward = false);
+        CreateNavButton(bgObj, "E  ↗", 200, row1Y, () => rotateRight = true, () => rotateRight = false);
         
         // === ROW 2: A S D ===
         float row2Y = 10f;
-        CreateNavButton(bgObj, "A  ←", -200, row2Y, () => moveLeft = true, () => moveLeft = false, "Strafe Left");
-        CreateNavButton(bgObj, "S  ↓", 0, row2Y, () => moveBackward = true, () => moveBackward = false, "Backward");
-        CreateNavButton(bgObj, "D  →", 200, row2Y, () => moveRight = true, () => moveRight = false, "Strafe Right");
+        CreateNavButton(bgObj, "A  ←", -200, row2Y, () => moveLeft = true, () => moveLeft = false);
+        CreateNavButton(bgObj, "S  ↓", 0, row2Y, () => moveBackward = true, () => moveBackward = false);
+        CreateNavButton(bgObj, "D  →", 200, row2Y, () => moveRight = true, () => moveRight = false);
         
-        // === ROW 3: R (up) F (down) + Y/C (yaw) ===
+        // === ROW 3: R (up) X (down) + boost ===
         float row3Y = -100f;
-        CreateNavButton(bgObj, "R  ⬆", -200, row3Y, () => moveUp = true, () => moveUp = false, "Move Up");
-        CreateNavButton(bgObj, "X  ⬇", 0, row3Y, () => moveDown = true, () => moveDown = false, "Move Down");
+        CreateNavButton(bgObj, "R  ⬆", -200, row3Y, () => moveUp = true, () => moveUp = false);
+        CreateNavButton(bgObj, "X  ⬇", 0, row3Y, () => moveDown = true, () => moveDown = false);
         
         // Boost toggle button
-        CreateToggleButton(bgObj, "⚡FAST", 200, row3Y, 
-            (active) => { isBoosting = active; }, "Toggle Fast Speed");
+        CreateToggleButton(bgObj, "⚡FAST", 200, row3Y);
         
         // === BOTTOM: Hide button ===
         float row4Y = -200f;
@@ -231,7 +448,7 @@ public class HoloLensNavigationUI : MonoBehaviour
             navPanel.SetActive(false);
             // Create a small "show" button that stays in fixed position
             StartCoroutine(ShowMinimizedButton());
-        }, "Minimize Panel");
+        });
     }
     
     System.Collections.IEnumerator ShowMinimizedButton()
@@ -251,15 +468,43 @@ public class HoloLensNavigationUI : MonoBehaviour
         
         GameObject btnObj = CreateUIElement("ShowBtn", miniCanvas, new Vector2(200, 80));
         Image btnImg = btnObj.AddComponent<Image>();
-        btnImg.color = new Color(0.0f, 0.47f, 0.84f, 0.9f);
+        Color miniColor = new Color(0.0f, 0.47f, 0.84f, 0.9f);
+        btnImg.color = miniColor;
         
-        Text btnText = CreateTextChild(btnObj, "NAV ☰", 24);
+        CreateTextChild(btnObj, "NAV ☰", 24);
         
+        // BoxCollider for XR interaction
+        BoxCollider col = btnObj.AddComponent<BoxCollider>();
+        col.size = new Vector3(210, 90, 15);
+        col.center = Vector3.zero;
+        
+        // Track for XR interaction (tap-to-show)
+        xrButtons.Add(new XRButtonData
+        {
+            gameObject = btnObj,
+            collider = col,
+            image = btnImg,
+            onPress = null,
+            onRelease = () =>
+            {
+                panelVisible = true;
+                navPanel.SetActive(true);
+                xrButtons.RemoveAll(b => b.gameObject == btnObj);
+                Destroy(miniCanvas);
+            },
+            isHoldButton = false,
+            isPressed = false,
+            normalColor = miniColor
+        });
+        
+        // Also add Button for Desktop/Editor fallback
         Button btn = btnObj.AddComponent<Button>();
         btn.targetGraphic = btnImg;
-        btn.onClick.AddListener(() => {
+        btn.onClick.AddListener(() =>
+        {
             panelVisible = true;
             navPanel.SetActive(true);
+            xrButtons.RemoveAll(b => b.gameObject == btnObj);
             Destroy(miniCanvas);
         });
         
@@ -281,10 +526,13 @@ public class HoloLensNavigationUI : MonoBehaviour
         }
     }
     
-    // === UI CREATION HELPERS ===
+    // === BUTTON CREATION HELPERS ===
     
+    /// <summary>
+    /// Creates a press-and-hold navigation button with BoxCollider for XR raycast.
+    /// </summary>
     void CreateNavButton(GameObject parent, string label, float x, float y,
-        System.Action onPress, System.Action onRelease, string tooltip)
+        System.Action onPress, System.Action onRelease)
     {
         GameObject btnObj = CreateUIElement("Btn_" + label.Split(' ')[0], parent, new Vector2(170, 90));
         RectTransform rect = btnObj.GetComponent<RectTransform>();
@@ -293,9 +541,27 @@ public class HoloLensNavigationUI : MonoBehaviour
         Image btnImage = btnObj.AddComponent<Image>();
         btnImage.color = btnNormal;
         
-        Text text = CreateTextChild(btnObj, label, 28);
+        CreateTextChild(btnObj, label, 28);
         
-        // Use EventTrigger for press-and-hold (not just click)
+        // BoxCollider for XR gaze/hand-ray raycast (slightly larger than visual for easier targeting)
+        BoxCollider col = btnObj.AddComponent<BoxCollider>();
+        col.size = new Vector3(180, 100, 15);
+        col.center = Vector3.zero;
+        
+        // Track for XR interaction (press-and-hold)
+        xrButtons.Add(new XRButtonData
+        {
+            gameObject = btnObj,
+            collider = col,
+            image = btnImage,
+            onPress = onPress,
+            onRelease = onRelease,
+            isHoldButton = true,
+            isPressed = false,
+            normalColor = btnNormal
+        });
+        
+        // EventTrigger for Desktop/Editor fallback (pointer events)
         UnityEngine.EventSystems.EventTrigger trigger = btnObj.AddComponent<UnityEngine.EventSystems.EventTrigger>();
         
         // PointerDown → start movement
@@ -326,8 +592,10 @@ public class HoloLensNavigationUI : MonoBehaviour
         trigger.triggers.Add(pointerExit);
     }
     
-    void CreateToggleButton(GameObject parent, string label, float x, float y,
-        System.Action<bool> onToggle, string tooltip)
+    /// <summary>
+    /// Creates a toggle button (tap to toggle on/off) with BoxCollider for XR.
+    /// </summary>
+    void CreateToggleButton(GameObject parent, string label, float x, float y)
     {
         GameObject btnObj = CreateUIElement("Btn_Toggle", parent, new Vector2(170, 90));
         RectTransform rect = btnObj.GetComponent<RectTransform>();
@@ -336,35 +604,89 @@ public class HoloLensNavigationUI : MonoBehaviour
         Image btnImage = btnObj.AddComponent<Image>();
         btnImage.color = btnNormal;
         
-        Text text = CreateTextChild(btnObj, label, 24);
+        CreateTextChild(btnObj, label, 24);
         
         bool isActive = false;
         
+        // BoxCollider for XR
+        BoxCollider col = btnObj.AddComponent<BoxCollider>();
+        col.size = new Vector3(180, 100, 15);
+        col.center = Vector3.zero;
+        
+        // Track for XR interaction (tap-to-toggle)
+        var btnData = new XRButtonData
+        {
+            gameObject = btnObj,
+            collider = col,
+            image = btnImage,
+            onPress = null,
+            onRelease = () =>
+            {
+                isActive = !isActive;
+                isBoosting = isActive;
+                Color newNormal = isActive ? btnToggle : btnNormal;
+                btnImage.color = newNormal;
+                // Update the tracked normal color so hover/unhover uses correct color
+                var tracked = xrButtons.Find(b => b.collider == col);
+                if (tracked != null) tracked.normalColor = newNormal;
+            },
+            isHoldButton = false,
+            isPressed = false,
+            normalColor = btnNormal
+        };
+        xrButtons.Add(btnData);
+        
+        // Button for Desktop/Editor fallback
         Button btn = btnObj.AddComponent<Button>();
         btn.targetGraphic = btnImage;
-        btn.onClick.AddListener(() => {
+        btn.onClick.AddListener(() =>
+        {
             isActive = !isActive;
+            isBoosting = isActive;
             btnImage.color = isActive ? btnToggle : btnNormal;
-            onToggle?.Invoke(isActive);
         });
     }
     
-    void CreateActionButton(GameObject parent, string label, float x, float y,
-        System.Action onClick, string tooltip)
+    /// <summary>
+    /// Creates a one-shot action button (tap to execute) with BoxCollider for XR.
+    /// </summary>
+    void CreateActionButton(GameObject parent, string label, float x, float y, System.Action onClick)
     {
         GameObject btnObj = CreateUIElement("Btn_Action", parent, new Vector2(170, 70));
         RectTransform rect = btnObj.GetComponent<RectTransform>();
         rect.anchoredPosition = new Vector2(x, y);
         
         Image btnImage = btnObj.AddComponent<Image>();
-        btnImage.color = new Color(0.6f, 0.1f, 0.1f, 0.85f);
+        Color actionColor = new Color(0.6f, 0.1f, 0.1f, 0.85f);
+        btnImage.color = actionColor;
         
-        Text text = CreateTextChild(btnObj, label, 22);
+        CreateTextChild(btnObj, label, 22);
         
+        // BoxCollider for XR
+        BoxCollider col = btnObj.AddComponent<BoxCollider>();
+        col.size = new Vector3(180, 80, 15);
+        col.center = Vector3.zero;
+        
+        // Track for XR interaction (tap-to-execute)
+        xrButtons.Add(new XRButtonData
+        {
+            gameObject = btnObj,
+            collider = col,
+            image = btnImage,
+            onPress = null,
+            onRelease = onClick,
+            isHoldButton = false,
+            isPressed = false,
+            normalColor = actionColor
+        });
+        
+        // Button for Desktop/Editor fallback
         Button btn = btnObj.AddComponent<Button>();
         btn.targetGraphic = btnImage;
         btn.onClick.AddListener(() => onClick?.Invoke());
     }
+    
+    // === UI ELEMENT HELPERS ===
     
     GameObject CreateUIElement(string name, GameObject parent, Vector2 size)
     {
@@ -399,6 +721,7 @@ public class HoloLensNavigationUI : MonoBehaviour
     
     void OnDestroy()
     {
+        IsXRButtonActive = false;
         if (navPanel != null) Destroy(navPanel);
     }
 }

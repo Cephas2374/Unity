@@ -409,6 +409,22 @@ public class CesiumMetadataReader : MonoBehaviour
         // HoloLens 2: Detect air tap / pinch via OpenXR input devices
         // Quick tap (< holdDuration) = view building data
         // Hold (>= holdDuration) then RELEASE = open edit form
+        
+        // Skip building interaction when a navigation button is actively held
+        // (HoloLensNavigationUI sets this flag during press-and-hold nav buttons)
+        if (HoloLensNavigationUI.IsXRButtonActive)
+        {
+            // Reset any in-progress gesture to avoid stale state
+            if (isHoldingGesture)
+            {
+                isHoldingGesture = false;
+                holdTimer = 0f;
+                if (xrFeedback != null) xrFeedback.ResetFeedback();
+            }
+            wasXRSelectPressed = false;
+            return;
+        }
+        
         bool currentSelectState = GetXRSelectState();
         
         bool selectPressed = currentSelectState && !wasXRSelectPressed;
