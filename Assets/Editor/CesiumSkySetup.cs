@@ -30,20 +30,17 @@ public class CesiumSkySetup
             return;
         }
 
-        // Load existing material or create a new one
+        // Always delete and recreate the material to ensure correct defaults.
+        // This guarantees property values match the shader defaults after any change.
         Material mat = AssetDatabase.LoadAssetAtPath<Material>(MAT_PATH);
-        if (mat == null || mat.shader != skyShader || !mat.HasProperty("_CloudMinElev"))
+        if (mat != null)
         {
-            // Recreate material to pick up new/changed shader properties
-            if (mat != null)
-            {
-                AssetDatabase.DeleteAsset(MAT_PATH);
-            }
-            mat = new Material(skyShader);
-            AssetDatabase.CreateAsset(mat, MAT_PATH);
-            AssetDatabase.SaveAssets();
-            Debug.Log("<color=green>✅ Created CesiumSkyWithClouds material at " + MAT_PATH + "</color>");
+            AssetDatabase.DeleteAsset(MAT_PATH);
         }
+        mat = new Material(skyShader);
+        AssetDatabase.CreateAsset(mat, MAT_PATH);
+        AssetDatabase.SaveAssets();
+        Debug.Log("<color=green>✅ Created CesiumSkyWithClouds material at " + MAT_PATH + "</color>");
 
         // Assign as the scene's skybox
         RenderSettings.skybox = mat;
