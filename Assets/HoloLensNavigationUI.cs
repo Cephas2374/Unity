@@ -389,11 +389,10 @@ public class HoloLensNavigationUI : MonoBehaviour
         if (forward == Vector3.zero) forward = Vector3.forward;
         forward.Normalize();
         
-        // Position: in front of user, slightly below eye level, slightly to the left
+        // Position: in front of user, slightly below eye level, centered
         Vector3 pos = mainCamera.transform.position 
             + forward * panelDistance 
-            + Vector3.up * panelVerticalOffset
-            + Vector3.Cross(Vector3.up, forward) * 0.15f; // Shift left slightly
+            + Vector3.up * panelVerticalOffset;
         
         navPanel.transform.position = pos;
         navPanel.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
@@ -532,8 +531,7 @@ public class HoloLensNavigationUI : MonoBehaviour
             
             miniCanvas.transform.position = mainCamera.transform.position 
                 + fwd * 0.5f 
-                + Vector3.up * panelVerticalOffset
-                + Vector3.Cross(Vector3.up, fwd) * 0.25f;
+                + Vector3.up * panelVerticalOffset;
             miniCanvas.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up);
             
             yield return null;
