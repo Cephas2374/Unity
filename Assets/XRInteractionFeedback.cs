@@ -77,6 +77,10 @@ public class XRInteractionFeedback : MonoBehaviour
     // Ring mesh segments
     private const int RING_SEGMENTS = 36;
     
+    // Cached XR device lists — reused to avoid per-frame GC allocation
+    private readonly List<InputDevice> cachedRayDevices = new List<InputDevice>();
+    private readonly List<InputDevice> cachedHapticDevices = new List<InputDevice>();
+    
     void Start()
     {
         mainCamera = Camera.main;
@@ -394,17 +398,18 @@ public class XRInteractionFeedback : MonoBehaviour
     /// </summary>
     void SendHapticPulse(float amplitude, float durationSeconds)
     {
-        var devices = new List<InputDevice>();
+        // Reuse cached list to avoid GC allocation
+        cachedHapticDevices.Clear();
         InputDevices.GetDevicesWithCharacteristics(
-            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, devices);
+            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, cachedHapticDevices);
         
-        if (devices.Count == 0)
+        if (cachedHapticDevices.Count == 0)
         {
             InputDevices.GetDevicesWithCharacteristics(
-                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, devices);
+                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, cachedHapticDevices);
         }
         
-        foreach (var device in devices)
+        foreach (var device in cachedHapticDevices)
         {
             HapticCapabilities caps;
             if (device.TryGetHapticCapabilities(out caps) && caps.supportsImpulse)
@@ -421,25 +426,26 @@ public class XRInteractionFeedback : MonoBehaviour
     /// </summary>
     Ray GetCurrentRay()
     {
-        var inputDevices = new List<InputDevice>();
+        // Reuse cached list to avoid per-frame GC allocation
+        cachedRayDevices.Clear();
         
         // Right hand first
         InputDevices.GetDevicesWithCharacteristics(
-            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, inputDevices);
+            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, cachedRayDevices);
         
-        if (inputDevices.Count == 0)
+        if (cachedRayDevices.Count == 0)
         {
             InputDevices.GetDevicesWithCharacteristics(
-                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, inputDevices);
+                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, cachedRayDevices);
         }
         
-        if (inputDevices.Count == 0)
+        if (cachedRayDevices.Count == 0)
         {
             InputDevices.GetDevicesWithCharacteristics(
-                InputDeviceCharacteristics.HandTracking, inputDevices);
+                InputDeviceCharacteristics.HandTracking, cachedRayDevices);
         }
         
-        foreach (var device in inputDevices)
+        foreach (var device in cachedRayDevices)
         {
             Vector3 pos;
             Quaternion rot;

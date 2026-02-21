@@ -102,6 +102,15 @@ public class HoloLensNavigationUI : MonoBehaviour
     private XRButtonData activeHoldButton = null;   // Currently held nav button
     private int hoveredButtonIndex = -1;
     private bool wasXRPinching = false;
+
+    // Cached references to avoid per-frame allocations (GC pressure crashes HoloLens 2)
+    private CesiumForUnity.CesiumGeoreference cachedGeoRef;
+    private readonly List<InputDevice> cachedDevices = new List<InputDevice>();
+    private readonly List<InputDevice> cachedSelectDevices = new List<InputDevice>();
+    
+    // UI layer for efficient Physics.Raycast (avoids checking thousands of Cesium colliders)
+    private const int UI_LAYER = 5;
+    private int uiLayerMask;
     
     void Start()
     {
@@ -118,6 +127,10 @@ public class HoloLensNavigationUI : MonoBehaviour
             this.enabled = false;
             return;
         }
+        
+        // Cache CesiumGeoreference to avoid FindObjectOfType every frame
+        cachedGeoRef = FindObjectOfType<CesiumForUnity.CesiumGeoreference>();
+        uiLayerMask = 1 << UI_LAYER;
         
         CreateNavigationPanel();
         Debug.Log("<color=cyan>[HoloLensNav] Navigation panel created with XR interaction.</color>");
@@ -175,14 +188,12 @@ public class HoloLensNavigationUI : MonoBehaviour
         
         if (movement != Vector3.zero)
         {
-            // Move the camera's parent or the CesiumGeoreference origin
-            // On HoloLens, we move the world origin (inverse of camera movement)
-            var geoRef = FindObjectOfType<CesiumForUnity.CesiumGeoreference>();
-            if (geoRef != null)
+            // Move the CesiumGeoreference origin (cached — no FindObjectOfType per frame)
+            if (cachedGeoRef != null)
             {
                 // Move the georeference opposite to desired camera movement
                 // This effectively "moves" the user through the city
-                geoRef.transform.position -= movement;
+                cachedGeoRef.transform.position -= movement;
             }
             else
             {
@@ -198,10 +209,9 @@ public class HoloLensNavigationUI : MonoBehaviour
             if (rotateLeft) yaw -= rotationSpeed * dt;
             if (rotateRight) yaw += rotationSpeed * dt;
             
-            var geoRef = FindObjectOfType<CesiumForUnity.CesiumGeoreference>();
-            if (geoRef != null)
+            if (cachedGeoRef != null)
             {
-                geoRef.transform.RotateAround(camTransform.position, Vector3.up, -yaw);
+                cachedGeoRef.transform.RotateAround(camTransform.position, Vector3.up, -yaw);
             }
         }
     }
@@ -235,11 +245,12 @@ public class HoloLensNavigationUI : MonoBehaviour
         }
         
         // Cast ray to find which button (if any) the user is pointing at
+        // Uses UI layer mask to avoid hitting thousands of Cesium building colliders
         Ray ray = GetXRPointingRay();
         RaycastHit hit;
         int hitIndex = -1;
         
-        if (Physics.Raycast(ray, out hit, 3f))
+        if (Physics.Raycast(ray, out hit, 3f, uiLayerMask))
         {
             for (int i = 0; i < xrButtons.Count; i++)
             {
@@ -317,19 +328,20 @@ public class HoloLensNavigationUI : MonoBehaviour
     /// </summary>
     Ray GetXRPointingRay()
     {
-        var devices = new List<InputDevice>();
+        // Reuse cached list to avoid per-frame allocation (GC pressure)
+        cachedDevices.Clear();
         
         // Try right hand first (most users are right-handed)
         InputDevices.GetDevicesWithCharacteristics(
-            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, devices);
-        if (devices.Count == 0)
+            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller, cachedDevices);
+        if (cachedDevices.Count == 0)
             InputDevices.GetDevicesWithCharacteristics(
-                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, devices);
-        if (devices.Count == 0)
+                InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller, cachedDevices);
+        if (cachedDevices.Count == 0)
             InputDevices.GetDevicesWithCharacteristics(
-                InputDeviceCharacteristics.HandTracking, devices);
+                InputDeviceCharacteristics.HandTracking, cachedDevices);
         
-        foreach (var device in devices)
+        foreach (var device in cachedDevices)
         {
             Vector3 pos;
             Quaternion rot;
@@ -350,10 +362,11 @@ public class HoloLensNavigationUI : MonoBehaviour
     /// </summary>
     bool GetXRSelectState()
     {
-        var devices = new List<InputDevice>();
-        InputDevices.GetDevices(devices);
+        // Reuse cached list to avoid per-frame allocation (GC pressure)
+        cachedSelectDevices.Clear();
+        InputDevices.GetDevices(cachedSelectDevices);
         
-        foreach (var device in devices)
+        foreach (var device in cachedSelectDevices)
         {
             bool value;
             if (device.TryGetFeatureValue(CommonUsages.primaryButton, out value) && value)
@@ -390,8 +403,9 @@ public class HoloLensNavigationUI : MonoBehaviour
     
     void CreateNavigationPanel()
     {
-        // Create canvas
+        // Create canvas on UI layer for efficient XR raycast
         GameObject canvasObj = new GameObject("HoloLensNavCanvas");
+        canvasObj.layer = UI_LAYER;
         navCanvas = canvasObj.AddComponent<Canvas>();
         navCanvas.renderMode = RenderMode.WorldSpace;
         
@@ -691,6 +705,7 @@ public class HoloLensNavigationUI : MonoBehaviour
     GameObject CreateUIElement(string name, GameObject parent, Vector2 size)
     {
         GameObject obj = new GameObject(name);
+        obj.layer = UI_LAYER; // UI layer for efficient XR raycast with layer mask
         obj.transform.SetParent(parent.transform, false);
         RectTransform rect = obj.AddComponent<RectTransform>();
         rect.sizeDelta = size;

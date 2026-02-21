@@ -65,6 +65,11 @@ public class CesiumMetadataReader : MonoBehaviour
     private bool isXRDevice = true;
     private bool wasXRSelectPressed = false;
     
+    // Cached XR device lists — reused every frame to avoid GC allocations
+    // (new List every frame caused periodic GC pauses → flashing + crash on HoloLens 2)
+    private readonly System.Collections.Generic.List<UnityEngine.XR.InputDevice> cachedSelectDevices = new System.Collections.Generic.List<UnityEngine.XR.InputDevice>();
+    private readonly System.Collections.Generic.List<UnityEngine.XR.InputDevice> cachedRayDevices = new System.Collections.Generic.List<UnityEngine.XR.InputDevice>();
+    
     // Interaction feedback (cursor, ring, audio, haptics)
     private XRInteractionFeedback xrFeedback;
     
@@ -507,10 +512,11 @@ public class CesiumMetadataReader : MonoBehaviour
     /// </summary>
     bool GetXRSelectState()
     {
-        var inputDevices = new List<UnityEngine.XR.InputDevice>();
-        UnityEngine.XR.InputDevices.GetDevices(inputDevices);
+        // Reuse cached list to avoid per-frame GC allocation
+        cachedSelectDevices.Clear();
+        UnityEngine.XR.InputDevices.GetDevices(cachedSelectDevices);
         
-        foreach (var device in inputDevices)
+        foreach (var device in cachedSelectDevices)
         {
             bool value;
             
@@ -1207,31 +1213,31 @@ public class CesiumMetadataReader : MonoBehaviour
     /// </summary>
     Ray GetXRRay()
     {
-        // Try to get hand ray from XR input devices (aim position + rotation)
-        var inputDevices = new List<UnityEngine.XR.InputDevice>();
+        // Reuse cached list to avoid GC allocation
+        cachedRayDevices.Clear();
         
         // Check right hand first (most users are right-handed)
         UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
             UnityEngine.XR.InputDeviceCharacteristics.Right | UnityEngine.XR.InputDeviceCharacteristics.Controller,
-            inputDevices);
+            cachedRayDevices);
         
         // Also check left hand
-        if (inputDevices.Count == 0)
+        if (cachedRayDevices.Count == 0)
         {
             UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
                 UnityEngine.XR.InputDeviceCharacteristics.Left | UnityEngine.XR.InputDeviceCharacteristics.Controller,
-                inputDevices);
+                cachedRayDevices);
         }
         
         // Also check hand tracking devices directly
-        if (inputDevices.Count == 0)
+        if (cachedRayDevices.Count == 0)
         {
             UnityEngine.XR.InputDevices.GetDevicesWithCharacteristics(
                 UnityEngine.XR.InputDeviceCharacteristics.HandTracking,
-                inputDevices);
+                cachedRayDevices);
         }
         
-        foreach (var device in inputDevices)
+        foreach (var device in cachedRayDevices)
         {
             Vector3 aimPosition;
             Quaternion aimRotation;
