@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems; // ADD THIS - Required for UI blocking
+using UnityEngine.XR;
 using CesiumForUnity;
 
 /// <summary>
@@ -35,7 +36,10 @@ public class CameraController : MonoBehaviour
     
     void Start()
     {
-        // XR device detection: isXRDevice defaults to true for direct HoloLens deploy.
+        // Detect if actually running on an XR device (HoloLens 2).
+        // Previously hardcoded to true, which disabled the controller in the Editor.
+        isXRDevice = XRSettings.isDeviceActive;
+        
         Debug.Log($"CameraController: isXRDevice = {isXRDevice}");
 
         Debug.Log($"<color=cyan>========== CAMERA CONTROLLER START ==========</color>");
