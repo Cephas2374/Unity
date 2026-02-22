@@ -449,8 +449,21 @@ public class XRInteractionFeedback : MonoBehaviour
         {
             Vector3 pos;
             Quaternion rot;
-            bool hasPos = device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
-            bool hasRot = device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
+            
+            // Try aim/pointer pose first (far-field pointing ray on HoloLens 2)
+            bool hasPos = device.TryGetFeatureValue(
+                new InputFeatureUsage<Vector3>("PointerPosition"), out pos);
+            bool hasRot = device.TryGetFeatureValue(
+                new InputFeatureUsage<Quaternion>("PointerRotation"), out rot);
+            
+            if (hasPos && hasRot && pos != Vector3.zero)
+            {
+                return new Ray(pos, rot * Vector3.forward);
+            }
+            
+            // Fall back to grip/device pose
+            hasPos = device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
+            hasRot = device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
             
             if (hasPos && hasRot && pos != Vector3.zero)
             {

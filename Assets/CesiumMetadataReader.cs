@@ -1242,18 +1242,28 @@ public class CesiumMetadataReader : MonoBehaviour
             Vector3 aimPosition;
             Quaternion aimRotation;
             
-            bool hasPos = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out aimPosition);
-            bool hasRot = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out aimRotation);
+            // Try aim/pointer pose first (far-field pointing ray on HoloLens 2)
+            bool hasPos = device.TryGetFeatureValue(
+                new UnityEngine.XR.InputFeatureUsage<Vector3>("PointerPosition"), out aimPosition);
+            bool hasRot = device.TryGetFeatureValue(
+                new UnityEngine.XR.InputFeatureUsage<Quaternion>("PointerRotation"), out aimRotation);
             
             if (hasPos && hasRot && aimPosition != Vector3.zero)
             {
-                Debug.Log($"<color=green>Using XR hand ray from device: {device.name}</color>");
+                return new Ray(aimPosition, aimRotation * Vector3.forward);
+            }
+            
+            // Fall back to grip/device pose
+            hasPos = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out aimPosition);
+            hasRot = device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out aimRotation);
+            
+            if (hasPos && hasRot && aimPosition != Vector3.zero)
+            {
                 return new Ray(aimPosition, aimRotation * Vector3.forward);
             }
         }
         
         // Fallback: Head gaze (camera forward direction)
-        Debug.Log("<color=yellow>Fallback: Using head gaze ray</color>");
         return new Ray(mainCamera.transform.position, mainCamera.transform.forward);
     }
     

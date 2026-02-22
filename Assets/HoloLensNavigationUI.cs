@@ -107,6 +107,12 @@ public class HoloLensNavigationUI : MonoBehaviour
     private LineRenderer handRayLine;
     private const float RAY_MAX_DISTANCE = 5f;
 
+    // OpenXR aim/pointer pose — this is the far-field pointing ray on HoloLens 2
+    // (devicePosition/deviceRotation = grip pose at wrist, NOT the aim ray)
+    private static readonly InputFeatureUsage<Vector3> pointerPosition = new InputFeatureUsage<Vector3>("PointerPosition");
+    private static readonly InputFeatureUsage<Quaternion> pointerRotation = new InputFeatureUsage<Quaternion>("PointerRotation");
+    private bool loggedPoseSource = false; // One-time diagnostic log
+
     // Cached references to avoid per-frame allocations (GC pressure crashes HoloLens 2)
     private CesiumForUnity.CesiumGeoreference cachedGeoRef;
     private readonly List<InputDevice> cachedDevices = new List<InputDevice>();
@@ -351,11 +357,26 @@ public class HoloLensNavigationUI : MonoBehaviour
         {
             Vector3 pos;
             Quaternion rot;
-            bool hasPos = device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
-            bool hasRot = device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
+            
+            // Try aim/pointer pose first — this is the far-field pointing ray on HoloLens 2
+            bool hasPos = device.TryGetFeatureValue(pointerPosition, out pos);
+            bool hasRot = device.TryGetFeatureValue(pointerRotation, out rot);
             
             if (hasPos && hasRot && pos != Vector3.zero)
+            {
+                if (!loggedPoseSource) { Debug.Log("<color=cyan>[HoloLensNav] Using AIM/Pointer pose from: " + device.name + "</color>"); loggedPoseSource = true; }
                 return new Ray(pos, rot * Vector3.forward);
+            }
+            
+            // Fall back to grip/device pose (wrist position)
+            hasPos = device.TryGetFeatureValue(CommonUsages.devicePosition, out pos);
+            hasRot = device.TryGetFeatureValue(CommonUsages.deviceRotation, out rot);
+            
+            if (hasPos && hasRot && pos != Vector3.zero)
+            {
+                if (!loggedPoseSource) { Debug.Log("<color=yellow>[HoloLensNav] AIM pose unavailable, using GRIP pose from: " + device.name + "</color>"); loggedPoseSource = true; }
+                return new Ray(pos, rot * Vector3.forward);
+            }
         }
         
         // Fallback: head gaze (camera forward)
