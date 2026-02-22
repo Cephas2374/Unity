@@ -84,6 +84,15 @@ public class HoloLensXRCameraSetup
             Debug.Log($"<color=green>✅ Added XRInteractionFeedback to {mainCam.name} for interaction feedback</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
+
+        // Auto-add EnergyDemandLegend for energy class overlay
+        EnergyDemandLegend legend = mainCam.GetComponent<EnergyDemandLegend>();
+        if (legend == null)
+        {
+            legend = mainCam.gameObject.AddComponent<EnergyDemandLegend>();
+            Debug.Log($"<color=green>✅ Added EnergyDemandLegend to {mainCam.name} for energy class overlay</color>");
+            EditorUtility.SetDirty(mainCam.gameObject);
+        }
     }
 
     [MenuItem("Tools/HoloLens/Setup Main Camera for XR")]
