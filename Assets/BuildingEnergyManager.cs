@@ -71,12 +71,19 @@ public class BuildingEnergyManager : MonoBehaviour
     [Tooltip("REAL-TIME MODE: Disable persistent cache, always fetch fresh data, poll for updates every interval")]
     public bool realTimeMode = true;
     
-    [Tooltip("Enable change detection for external edits (polling) - ALWAYS ENABLED")]
+    [Tooltip("Enable change detection for external edits (polling fallback when WebSocket is disconnected)")]
     public bool enableChangeDetection = true;
     
-    [Tooltip("How often to check for external changes (seconds) - 120s for HoloLens battery/memory efficiency")]
+    [Tooltip("How often to check for external changes (seconds) — only used when WebSocket is disconnected")]
     [Range(30f, 3600f)]
-    public float changeCheckInterval = 120f; // 2 minutes for HoloLens battery/network/memory efficiency
+    public float changeCheckInterval = 120f; // 2 minutes — polling fallback only
+    
+    [Header("WebSocket (Primary Real-Time Channel)")]
+    [Tooltip("Enable WebSocket for instant push updates (falls back to polling if connection fails)")]
+    public bool enableWebSocket = true;
+    
+    [Tooltip("WebSocket is currently connected and receiving real-time updates")]
+    [SerializeField] private bool webSocketConnected = false;
     
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
@@ -93,6 +100,9 @@ public class BuildingEnergyManager : MonoBehaviour
     private HashSet<string> modifiedBuildingIds = new HashSet<string>(); // Track buildings modified in this session
     private Dictionary<string, DateTime> buildingLastUpdated = new Dictionary<string, DateTime>(); // Track update timestamps
     private bool isPollingForUpdates = false; // Prevent concurrent polling
+    
+    // WebSocket client reference (auto-created)
+    private BuildingWebSocketClient wsClient;
     
     // Cached reference — avoids FindObjectOfType (expensive scene scan) on every call
     private CesiumFeatureColorizer cachedColorizer;
@@ -179,7 +189,8 @@ public class BuildingEnergyManager : MonoBehaviour
         Debug.Log($"<color=cyan>   • Community: {communityId}</color>");
         Debug.Log($"<color=cyan>   • Real-Time Mode: {(realTimeMode ? "ENABLED (always fresh data)" : "DISABLED (uses cache)")}</color>");
         Debug.Log($"<color=cyan>   • Persistent Cache: {(enablePersistentCache && !realTimeMode ? "ENABLED" : "DISABLED")}</color>");
-        Debug.Log($"<color=cyan>   • Change Detection: {(enableChangeDetection ? $"ENABLED (every {changeCheckInterval}s)" : "DISABLED")}</color>");
+        Debug.Log($"<color=cyan>   • WebSocket: {(enableWebSocket ? "ENABLED (primary real-time channel)" : "DISABLED")}</color>");
+        Debug.Log($"<color=cyan>   • Polling Fallback: {(enableChangeDetection ? $"ENABLED (every {changeCheckInterval}s when WS disconnected)" : "DISABLED")}</color>");
         
         FindBuildingsTileset();
         
@@ -277,8 +288,12 @@ public class BuildingEnergyManager : MonoBehaviour
         }
 #endif
         
-        // Periodic check for external changes (if enabled)
-        if (enableChangeDetection && buildingDataCache.Count > 0)
+        // Periodic check for external changes — ONLY when WebSocket is NOT connected
+        // When WebSocket is active, updates arrive instantly via push. Polling is the fallback.
+        bool wsActive = wsClient != null && wsClient.IsConnected && wsClient.IsAuthenticated;
+        webSocketConnected = wsActive; // Inspector visibility
+        
+        if (enableChangeDetection && buildingDataCache.Count > 0 && !wsActive)
         {
             changeCheckTimer += Time.deltaTime;
             if (changeCheckTimer >= changeCheckInterval)
@@ -654,6 +669,175 @@ public class BuildingEnergyManager : MonoBehaviour
         {
             Debug.LogWarning("<color=yellow>CesiumFeatureColorizer not found - tiles won't be colored</color>");
         }
+        
+        // Connect WebSocket AFTER data is loaded and colorizer notified
+        ConnectWebSocket();
+    }
+    
+    // ========================================
+    // WEBSOCKET REAL-TIME UPDATES
+    // ========================================
+    
+    /// <summary>
+    /// Initialize and connect the WebSocket client for instant push updates.
+    /// Polling automatically pauses while WebSocket is connected.
+    /// </summary>
+    private void ConnectWebSocket()
+    {
+        if (!enableWebSocket || string.IsNullOrEmpty(accessToken))
+        {
+            Debug.Log($"<color=gray>[WS] WebSocket {(enableWebSocket ? "enabled but no token yet" : "disabled")} — using polling fallback</color>");
+            return;
+        }
+        
+        // Auto-create WebSocket client on this GameObject
+        wsClient = GetComponent<BuildingWebSocketClient>();
+        if (wsClient == null)
+        {
+            wsClient = gameObject.AddComponent<BuildingWebSocketClient>();
+        }
+        
+        // Configure
+        wsClient.wsBaseUrl = apiBaseUrl.Replace("https://", "wss://").Replace("http://", "ws://");
+        wsClient.communityId = communityId;
+        
+        // Subscribe to events
+        wsClient.OnBuildingUpdated -= HandleWebSocketBuildingUpdate;
+        wsClient.OnBuildingUpdated += HandleWebSocketBuildingUpdate;
+        
+        wsClient.OnBuildingDeleted -= HandleWebSocketBuildingDelete;
+        wsClient.OnBuildingDeleted += HandleWebSocketBuildingDelete;
+        
+        wsClient.OnBulkUpdate -= HandleWebSocketBulkUpdate;
+        wsClient.OnBulkUpdate += HandleWebSocketBulkUpdate;
+        
+        wsClient.OnConnectionChanged -= HandleWebSocketConnectionChanged;
+        wsClient.OnConnectionChanged += HandleWebSocketConnectionChanged;
+        
+        // Connect with JWT token
+        wsClient.Connect(accessToken);
+        Debug.Log("<color=cyan>[WS] 🔌 WebSocket connecting — polling will pause once connected</color>");
+    }
+    
+    /// <summary>
+    /// Handle a single building update pushed via WebSocket.
+    /// Same logic as the polling incremental update but triggered instantly.
+    /// </summary>
+    private void HandleWebSocketBuildingUpdate(string gmlId, JObject buildingJson)
+    {
+        try
+        {
+            BuildingData updatedData = ParseSingleBuilding(buildingJson);
+            if (updatedData == null) return;
+            
+            buildingDataCache[gmlId] = updatedData;
+            buildingLastUpdated[gmlId] = DateTime.Now;
+            
+            // Recolor the single building
+            if (buildingColorCache.TryGetValue(gmlId, out Color color))
+            {
+                CesiumFeatureColorizer colorizer = GetColorizer();
+                if (colorizer != null)
+                {
+                    colorizer.RecolorSingleBuilding(gmlId, color);
+                }
+            }
+            
+            Debug.Log($"<color=green>[WS] ✅ Applied update for {gmlId} (energy: {updatedData.energyDemandBefore} kWh/m²a)</color>");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[WS] Failed to apply building update for {gmlId}: {e.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Handle building deletion pushed via WebSocket.
+    /// </summary>
+    private void HandleWebSocketBuildingDelete(string gmlId)
+    {
+        buildingDataCache.Remove(gmlId);
+        buildingColorCache.Remove(gmlId);
+        gmlIdCache.Remove(gmlId);
+        
+        // Recolor to remove (set to default/clear)
+        CesiumFeatureColorizer colorizer = GetColorizer();
+        if (colorizer != null)
+        {
+            colorizer.RecolorSingleBuilding(gmlId, Color.clear);
+        }
+        
+        Debug.Log($"<color=yellow>[WS] Removed {gmlId} from cache</color>");
+    }
+    
+    /// <summary>
+    /// Handle bulk update pushed via WebSocket (e.g., batch simulation results).
+    /// </summary>
+    private void HandleWebSocketBulkUpdate(JArray buildings)
+    {
+        int updated = 0;
+        List<string> changedIds = new List<string>();
+        
+        foreach (JObject building in buildings)
+        {
+            string gmlId = building["modified_gml_id"]?.ToString();
+            if (string.IsNullOrEmpty(gmlId)) continue;
+            
+            BuildingData data = ParseSingleBuilding(building);
+            if (data != null)
+            {
+                buildingDataCache[gmlId] = data;
+                buildingLastUpdated[gmlId] = DateTime.Now;
+                changedIds.Add(gmlId);
+                updated++;
+            }
+        }
+        
+        // Recolor all changed buildings
+        if (changedIds.Count > 0)
+        {
+            StartCoroutine(RecolorChangedBuildings(changedIds));
+        }
+        
+        Debug.Log($"<color=green>[WS] 📦 Bulk update applied: {updated} buildings</color>");
+    }
+    
+    /// <summary>
+    /// Spread recoloring across frames to avoid stutter (shared by WS bulk + polling).
+    /// </summary>
+    private IEnumerator RecolorChangedBuildings(List<string> changedIds)
+    {
+        CesiumFeatureColorizer colorizer = GetColorizer();
+        if (colorizer == null) yield break;
+        
+        foreach (string id in changedIds)
+        {
+            if (buildingColorCache.TryGetValue(id, out Color color))
+            {
+                colorizer.RecolorSingleBuilding(id, color);
+            }
+            yield return null; // One building per frame
+        }
+    }
+    
+    /// <summary>
+    /// Handle WebSocket connection state changes.
+    /// When connected: polling pauses (handled in Update).
+    /// When disconnected: polling resumes automatically.
+    /// </summary>
+    private void HandleWebSocketConnectionChanged(bool connected)
+    {
+        webSocketConnected = connected;
+        
+        if (connected)
+        {
+            Debug.Log("<color=green>[WS] ✅ Real-time updates active — polling paused</color>");
+            changeCheckTimer = 0f; // Reset poll timer so it doesn't fire immediately on disconnect
+        }
+        else
+        {
+            Debug.Log("<color=yellow>[WS] ⚠️ Disconnected — polling will resume in {changeCheckInterval}s</color>");
+        }
     }
     
     /// <summary>
@@ -832,7 +1016,7 @@ public class BuildingEnergyManager : MonoBehaviour
             
         isPollingForUpdates = true;
         
-        Debug.Log("<color=cyan>🔍 Polling API for updated building data...</color>");
+        Debug.Log("<color=cyan>🔍 Polling API for updated building data (WebSocket fallback)...</color>");
         
         // Poll API with aggressive cache-busting
         long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -2882,6 +3066,16 @@ public class BuildingEnergyManager : MonoBehaviour
     
     void OnDestroy()
     {
+        // Disconnect WebSocket gracefully
+        if (wsClient != null)
+        {
+            wsClient.OnBuildingUpdated -= HandleWebSocketBuildingUpdate;
+            wsClient.OnBuildingDeleted -= HandleWebSocketBuildingDelete;
+            wsClient.OnBulkUpdate -= HandleWebSocketBulkUpdate;
+            wsClient.OnConnectionChanged -= HandleWebSocketConnectionChanged;
+            wsClient.Disconnect();
+        }
+        
         // Stop all coroutines to prevent GC handle issues on domain reload
         StopAllCoroutines();
         
