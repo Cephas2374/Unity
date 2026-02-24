@@ -74,9 +74,9 @@ public class BuildingEnergyManager : MonoBehaviour
     [Tooltip("Enable change detection for external edits (polling) - ALWAYS ENABLED")]
     public bool enableChangeDetection = true;
     
-    [Tooltip("How often to check for external changes (seconds) - 60 seconds = 1 minute for HoloLens optimization")]
-    [Range(5f, 3600f)]
-    public float changeCheckInterval = 60f; // 60 seconds = 1 minute for HoloLens battery/network efficiency
+    [Tooltip("How often to check for external changes (seconds) - 120s for HoloLens battery/memory efficiency")]
+    [Range(30f, 3600f)]
+    public float changeCheckInterval = 120f; // 2 minutes for HoloLens battery/network/memory efficiency
     
     // Public for CesiumMetadataReader and CesiumFeatureColorizer access
     public Dictionary<string, BuildingData> buildingDataCache = new Dictionary<string, BuildingData>();
@@ -856,28 +856,45 @@ public class BuildingEnergyManager : MonoBehaviour
                     JArray freshData = JArray.Parse(request.downloadHandler.text);
                     int updatedCount = 0;
                     int newCount = 0;
+                    List<string> changedGmlIds = new List<string>();
                     
-                    // Compare with cached data and update changes
+                    // Compare with cached data — only detect which buildings changed
                     foreach (JObject building in freshData)
                     {
                         string gmlId = building["modified_gml_id"]?.ToString();
                         if (string.IsNullOrEmpty(gmlId)) continue;
                         
-                        // Check if building data has changed
                         bool hasChanged = false;
                         
                         if (buildingDataCache.ContainsKey(gmlId))
                         {
-                            // Check if energy data changed (simple comparison)
+                            // Check if energy data changed (lightweight comparison)
                             var existingData = buildingDataCache[gmlId];
                             var energyResult = building["energy_result"];
                             
                             if (energyResult != null)
                             {
-                                int? newEnergyDemand = energyResult["end"]?["result"]?["energy_demand_specific"]?["value"]?.ToObject<int?>();
-                                if (newEnergyDemand.HasValue && newEnergyDemand.Value != existingData.energyDemandAfter)
-                                {
+                                int? newEnergyDemandBefore = energyResult["begin"]?["result"]?["energy_demand_specific"]?["value"]?.ToObject<int?>();
+                                int? newEnergyDemandAfter = energyResult["end"]?["result"]?["energy_demand_specific"]?["value"]?.ToObject<int?>();
+                                string newHexColor = energyResult["begin"]?["color"]?["energy_demand_specific_color"]?.ToString();
+                                
+                                // Compare begin demand (what we use for coloring)
+                                if (newEnergyDemandBefore.HasValue && newEnergyDemandBefore.Value != existingData.energyDemandBefore)
                                     hasChanged = true;
+                                // Compare end demand
+                                else if (newEnergyDemandAfter.HasValue && newEnergyDemandAfter.Value != existingData.energyDemandAfter)
+                                    hasChanged = true;
+                                // Compare color
+                                else if (!string.IsNullOrEmpty(newHexColor) && buildingColorCache.ContainsKey(gmlId))
+                                {
+                                    if (ColorUtility.TryParseHtmlString(newHexColor, out Color newColor))
+                                    {
+                                        Color existingColor = buildingColorCache[gmlId];
+                                        if (Mathf.Abs(newColor.r - existingColor.r) > 0.01f ||
+                                            Mathf.Abs(newColor.g - existingColor.g) > 0.01f ||
+                                            Mathf.Abs(newColor.b - existingColor.b) > 0.01f)
+                                            hasChanged = true;
+                                    }
                                 }
                             }
                         }
@@ -889,26 +906,39 @@ public class BuildingEnergyManager : MonoBehaviour
                         
                         if (hasChanged)
                         {
-                            // Update building in cache
+                            // Update ONLY this building in the cache (no full re-parse)
                             BuildingData updatedData = ParseSingleBuilding(building);
                             if (updatedData != null)
                             {
                                 buildingDataCache[gmlId] = updatedData;
                                 buildingLastUpdated[gmlId] = DateTime.Now;
                                 updatedCount++;
-                                
-                                // Update visual
-                                if (buildingColorCache.ContainsKey(gmlId))
-                                {
-                                    UpdateBuildingVisual(gmlId);
-                                }
+                                changedGmlIds.Add(gmlId);
                             }
                         }
+                        
+                        // Yield every 50 buildings to avoid blocking the frame
+                        // (important on HoloLens 2 where frame drops cause tracking loss)
                     }
                     
-                    if (updatedCount > 0 || newCount > 0)
+                    // Only recolor the buildings that actually changed — never full recolor
+                    if (changedGmlIds.Count > 0)
                     {
                         Debug.Log($"<color=green>✅ Detected changes: {updatedCount} updated, {newCount} new buildings</color>");
+                        
+                        CesiumFeatureColorizer colorizer = GetColorizer();
+                        if (colorizer != null)
+                        {
+                            foreach (string changedId in changedGmlIds)
+                            {
+                                if (buildingColorCache.TryGetValue(changedId, out Color color))
+                                {
+                                    colorizer.RecolorSingleBuilding(changedId, color);
+                                }
+                                // Spread recolors across frames to avoid stutter
+                                yield return null;
+                            }
+                        }
                         
                         // Update cache file if persistent cache is enabled
                         if (enablePersistentCache && !realTimeMode)

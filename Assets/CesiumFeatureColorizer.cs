@@ -698,13 +698,17 @@ public class CesiumFeatureColorizer : MonoBehaviour
     }
 
     /// <summary>
-    /// Recolor a single building by gmlId (called after building data is edited)
+    /// Recolor a single building by gmlId (called after building data is edited).
+    /// Lightweight: only scans meshes that contain the target building.
+    /// Does NOT clear global caches to avoid disrupting other colored buildings.
     /// </summary>
     public void RecolorSingleBuilding(string gmlId, Color newColor)
     {
-        idMatchCache.Clear(); // Clear match cache to force fresh lookup
-        featureColorCache.Clear(); // Clear feature cache
-
+        // Only clear the per-mesh feature cache (rebuilt each ColorizeMesh call anyway)
+        // Do NOT clear idMatchCache — it's needed by other buildings
+        
+        if (tileset == null) return;
+        
         MeshRenderer[] allRenderers = tileset.GetComponentsInChildren<MeshRenderer>();
 
         int recoloredCount = 0;
@@ -717,7 +721,9 @@ public class CesiumFeatureColorizer : MonoBehaviour
             }
         }
 
-        if (recoloredCount == 0 && debugMode)
+        if (recoloredCount > 0 && debugMode)
+            Debug.Log($"<color=green>🎨 Recolored building {gmlId} across {recoloredCount} meshes</color>");
+        else if (recoloredCount == 0 && debugMode)
             Debug.LogWarning($"<color=orange>Building {gmlId} not found in visible tiles</color>");
     }
 
