@@ -38,7 +38,9 @@ public class HoloLensStreetLevel : MonoBehaviour
     public int maxXRWaitFrames = 120;
 
     private CesiumGeoreference geoRef;
+    #pragma warning disable CS0414
     private bool applied = false;
+    #pragma warning restore CS0414
 
     void Start()
     {

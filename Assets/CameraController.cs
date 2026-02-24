@@ -33,6 +33,7 @@ public class CameraController : MonoBehaviour
     
     private bool rightMouseDown = false;
     private bool isXRDevice = true;
+    private int xrCheckFrames = 0;
     
     void Start()
     {

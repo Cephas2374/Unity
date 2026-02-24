@@ -901,7 +901,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
 
     public string GetStatistics()
     {
-        return $"Buildings: {totalBuildingsColored}, Vertices: {totalVerticesColored}, Tiles: {processedTiles.Count}";
+        return $"Buildings: {totalBuildingsColored}, Vertices: {totalVerticesColored}, Tiles: {processedInstanceIds.Count}";
     }
 
     /// <summary>
