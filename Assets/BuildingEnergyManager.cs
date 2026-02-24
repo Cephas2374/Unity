@@ -851,12 +851,14 @@ public class BuildingEnergyManager : MonoBehaviour
             
             if (request.result == UnityWebRequest.Result.Success)
             {
+                List<string> changedGmlIds = new List<string>();
+                string rawText = request.downloadHandler.text;
+                
                 try
                 {
-                    JArray freshData = JArray.Parse(request.downloadHandler.text);
+                    JArray freshData = JArray.Parse(rawText);
                     int updatedCount = 0;
                     int newCount = 0;
-                    List<string> changedGmlIds = new List<string>();
                     
                     // Compare with cached data — only detect which buildings changed
                     foreach (JObject building in freshData)
@@ -916,34 +918,16 @@ public class BuildingEnergyManager : MonoBehaviour
                                 changedGmlIds.Add(gmlId);
                             }
                         }
-                        
-                        // Yield every 50 buildings to avoid blocking the frame
-                        // (important on HoloLens 2 where frame drops cause tracking loss)
                     }
                     
-                    // Only recolor the buildings that actually changed — never full recolor
                     if (changedGmlIds.Count > 0)
                     {
                         Debug.Log($"<color=green>✅ Detected changes: {updatedCount} updated, {newCount} new buildings</color>");
                         
-                        CesiumFeatureColorizer colorizer = GetColorizer();
-                        if (colorizer != null)
-                        {
-                            foreach (string changedId in changedGmlIds)
-                            {
-                                if (buildingColorCache.TryGetValue(changedId, out Color color))
-                                {
-                                    colorizer.RecolorSingleBuilding(changedId, color);
-                                }
-                                // Spread recolors across frames to avoid stutter
-                                yield return null;
-                            }
-                        }
-                        
                         // Update cache file if persistent cache is enabled
                         if (enablePersistentCache && !realTimeMode)
                         {
-                            SaveRawJsonToDisk(request.downloadHandler.text);
+                            SaveRawJsonToDisk(rawText);
                         }
                     }
                     else
@@ -954,6 +938,24 @@ public class BuildingEnergyManager : MonoBehaviour
                 catch (Exception e)
                 {
                     Debug.LogError($"<color=red>❌ Failed to check for changes: {e.Message}</color>");
+                }
+                
+                // Recolor changed buildings OUTSIDE try/catch (yield not allowed in try/catch)
+                if (changedGmlIds.Count > 0)
+                {
+                    CesiumFeatureColorizer colorizer = GetColorizer();
+                    if (colorizer != null)
+                    {
+                        foreach (string changedId in changedGmlIds)
+                        {
+                            if (buildingColorCache.TryGetValue(changedId, out Color color))
+                            {
+                                colorizer.RecolorSingleBuilding(changedId, color);
+                            }
+                            // Spread recolors across frames to avoid stutter
+                            yield return null;
+                        }
+                    }
                 }
             }
             else if (request.responseCode == 401)
