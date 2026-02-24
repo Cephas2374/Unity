@@ -1,0 +1,28 @@
+sequenceDiagram
+    participant Client as HoloLens 2 Client<br/>(REST API)
+    participant API as Django REST API
+    participant DB as PostgreSQL/PostGIS
+    participant Signal as Django Signal<br/>(post_save)
+    participant Redis as Redis Channel Layer
+    participant Consumer as ASGI Consumer
+    participant WS as HoloLens 2 Client<br/>(WebSocket)
+
+    Client->>API: PUT /api/buildings/{id}/<br/>(JSON payload + JWT)
+    API->>DB: UPDATE building SET ...
+    DB-->>API: OK (row updated)
+    API-->>Client: HTTP 200 OK
+    
+    Note over DB,Signal: Django post_save signal fires
+    DB--)Signal: post_save(instance)
+    Signal->>Signal: _serialize_building(instance)
+    Signal->>Redis: group_send("buildings_08417008",<br/>{"type":"building_updated","data":{...}})
+    
+    Note over Redis,Consumer: Redis pub/sub fan-out
+    Redis->>Consumer: Deliver to all group subscribers
+    Consumer->>WS: send_json({"type":"building_updated",<br/>"data":{...}})
+    
+    Note over WS: ~200-500ms total latency
+    WS->>WS: ParseSingleBuilding(data)
+    WS->>WS: Update buildingDataCache
+    WS->>WS: RecolorSingleBuilding(gmlId, color)
+    WS-->>Consumer: {"type":"ack","gml_id":"..."}

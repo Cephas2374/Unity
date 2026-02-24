@@ -1,0 +1,38 @@
+stateDiagram-v2
+    [*] --> Disconnected: Application Start
+    
+    state "Tier 1: WebSocket Active" as T1 {
+        state "Connected and Authenticated" as Active
+        state "Receiving Push Notifications" as Receiving
+        state "Sending Keepalive Pings" as Pinging
+
+        Active --> Receiving: building_updated / building_deleted
+        Receiving --> Active: Event processed
+        Active --> Pinging: Every 30s
+        Pinging --> Active: pong received
+    }
+
+    state "Tier 2: Reconnecting" as T2 {
+        state "Attempt n=1..5" as Retry
+        state "Wait d=min(5n, 60)s" as Wait
+        state "HTTP Polling Active (every 120s)" as Poll
+
+        Retry --> Wait: Connection failed
+        Wait --> Retry: Delay elapsed
+        Retry --> Poll: Polling resumes automatically
+    }
+
+    state "Tier 3: Polling Only" as T3 {
+        state "HTTP Polling (every 120s)" as PollOnly
+        state "WebSocket Disabled" as Disabled
+
+        PollOnly --> Disabled: Continuous operation
+        Disabled --> PollOnly: Timer fires
+    }
+
+    Disconnected --> T1: Connect + Authenticate
+    Disconnected --> T2: Connection failed
+    T1 --> T2: Socket closed / keepalive timeout
+    T2 --> T1: Reconnect successful (reset attempts = 0)
+    T2 --> T3: All 5 attempts exhausted
+    T3 --> T1: Manual reconnect / Application restart

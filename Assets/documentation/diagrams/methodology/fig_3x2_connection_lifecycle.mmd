@@ -1,0 +1,33 @@
+sequenceDiagram
+    participant C as Unity Client<br/>(BuildingWebSocketClient)
+    participant S as ASGI Server<br/>(BuildingEnergyConsumer)
+    participant R as Redis<br/>(Channel Layer)
+
+    Note over C,S: Phase 1: TCP + TLS Handshake
+    C->>S: HTTP GET /ws/buildings/08417008/<br/>Upgrade: websocket
+    S-->>C: HTTP 101 Switching Protocols
+
+    Note over C,S: Phase 2: JWT Authentication
+    C->>S: {"type":"authenticate","token":"eyJ..."}
+    S->>S: AccessToken(token) — validate signature and expiry
+    S->>R: group_add("buildings_08417008", channel_name)
+    S-->>C: {"type":"auth_ok"}
+
+    Note over C,S: Phase 3: Steady-State Operation
+    
+    loop Every 30 seconds
+        C->>S: {"type":"ping"}
+        S-->>C: {"type":"pong"}
+    end
+
+    Note over S: External edit triggers post_save
+    S->>C: {"type":"building_updated","data":{...}}
+    C-->>S: {"type":"ack","gml_id":"DEBW..."}
+
+    S->>C: {"type":"building_deleted","gml_id":"DEBW..."}
+    C-->>S: {"type":"ack","gml_id":"DEBW..."}
+
+    Note over C,S: Phase 4: Graceful Disconnect
+    C->>S: WebSocket Close Frame (1000)
+    S->>R: group_discard("buildings_08417008", channel_name)
+    S-->>C: Close Frame ACK
