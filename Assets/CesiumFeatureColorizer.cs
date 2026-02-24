@@ -58,7 +58,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
     // ===== OPTIMIZATION: Material pooling =====
     private Material cachedVertexColorMaterial;
     
-    private HashSet<GameObject> processedTiles = new HashSet<GameObject>();
+    private HashSet<int> processedInstanceIds = new HashSet<int>();  // Track by InstanceID (survives LOD swaps)
     private int totalBuildingsColored = 0;
     private int totalVerticesColored = 0;
     private int unColoredBuildingsCount = 0; // Track buildings that couldn't be colored
@@ -66,6 +66,8 @@ public class CesiumFeatureColorizer : MonoBehaviour
     private HashSet<string> unmatchedGmlIds = new HashSet<string>(); // For aggressive diagnostics
     private Dictionary<string, string> idMatchCache = new Dictionary<string, string>(); // gmlId -> matched API key
     private Dictionary<string, string> reverseGmlIdCache = new Dictionary<string, string>(); // gml_id -> modified_gml_id
+    private bool cacheReady = false; // Flag: color cache is loaded and ready
+    private Coroutine continuousColorCoroutine = null; // Persistent coroutine for late-arriving tiles
 
     void Start()
     {
@@ -187,20 +189,19 @@ public class CesiumFeatureColorizer : MonoBehaviour
 
     private void OnTileCreated(GameObject tileGameObject)
     {
-        if (processedTiles.Contains(tileGameObject))
+        if (tileGameObject == null) return;
+        int instanceId = tileGameObject.GetInstanceID();
+        if (processedInstanceIds.Contains(instanceId))
             return;
 
-        // CRITICAL: Don't color tiles if cache is still loading/parsing
-        // This prevents tiles from being colored with incomplete data during startup
+        // Don't color tiles if cache is still loading/parsing
         // They'll be recolored by RecolorAllTiles once cache is fully loaded
-        if (energyManager == null || energyManager.buildingColorCache.Count == 0)
+        if (!cacheReady || energyManager == null || energyManager.buildingColorCache.Count == 0)
         {
-            if (debugMode)
-                Debug.Log($"<color=yellow>⏸️ Tile loaded but cache not ready yet - will color after cache loads</color>");
-            return; // Don't add to processedTiles - let RecolorAllTiles handle it
+            return; // Don't mark as processed — will be colored later
         }
 
-        processedTiles.Add(tileGameObject);
+        processedInstanceIds.Add(instanceId);
         
         // Ensure reverse gmlId lookup is built (for tiles arriving after startup)
         if (reverseGmlIdCache.Count == 0 && energyManager.gmlIdCache.Count > 0)
@@ -539,7 +540,7 @@ public class CesiumFeatureColorizer : MonoBehaviour
 
     public IEnumerator RecolorAllTilesWithLogging()
     {
-        processedTiles.Clear();
+        processedInstanceIds.Clear();
         totalBuildingsColored = 0;
         totalVerticesColored = 0;
         unColoredBuildingsCount = 0;
@@ -574,10 +575,25 @@ public class CesiumFeatureColorizer : MonoBehaviour
             // Batch across frames
             if (processed % meshesPerFrame == 0)
             {
-                Debug.Log($"<color=yellow>Progress: {processed}/{allRenderers.Length}</color>");
                 yield return null;
             }
         }
+        
+        // Mark all current tile GameObjects as processed by InstanceID
+        Transform[] allTileTransforms = tileset.GetComponentsInChildren<Transform>();
+        foreach (var t in allTileTransforms)
+        {
+            if (t.GetComponent<MeshRenderer>() != null)
+                processedInstanceIds.Add(t.gameObject.GetInstanceID());
+        }
+        
+        // Mark cache as ready so OnTileCreated will color new tiles immediately
+        cacheReady = true;
+        
+        // Start continuous coloring coroutine for tiles that stream in later
+        if (continuousColorCoroutine != null)
+            StopCoroutine(continuousColorCoroutine);
+        continuousColorCoroutine = StartCoroutine(ContinuouslyColorNewTiles());
 
         // Final statistics — count how many tileset buildings got a color from API
         int tilesetCount = uniqueBuildingsInTileset.Count;
@@ -629,6 +645,49 @@ public class CesiumFeatureColorizer : MonoBehaviour
         else if (tilesetCount > 0)
         {
             Debug.Log($"<color=green>✅ Good match: {matchedCount}/{tilesetCount} ({matchRate:F1}%)</color>");
+        }
+    }
+    
+    /// <summary>
+    /// Continuously scans for uncolored tile meshes every few seconds.
+    /// Catches tiles that streamed in during or after RecolorAllTiles,
+    /// and tiles that were LOD-swapped (new GameObjects for same area).
+    /// </summary>
+    private IEnumerator ContinuouslyColorNewTiles()
+    {
+        Debug.Log("<color=cyan>🔄 Continuous tile coloring started (catches LOD swaps & late tiles)</color>");
+        
+        while (true)
+        {
+            yield return new WaitForSeconds(3f);
+            
+            if (tileset == null || energyManager == null || energyManager.buildingColorCache.Count == 0)
+                continue;
+            
+            MeshRenderer[] allRenderers = tileset.GetComponentsInChildren<MeshRenderer>();
+            int newlyColored = 0;
+            int scanned = 0;
+            
+            foreach (MeshRenderer renderer in allRenderers)
+            {
+                int id = renderer.gameObject.GetInstanceID();
+                if (!processedInstanceIds.Contains(id))
+                {
+                    processedInstanceIds.Add(id);
+                    ColorizeMesh(renderer);
+                    newlyColored++;
+                }
+                
+                scanned++;
+                // Yield every batch to avoid frame stutter
+                if (scanned % meshesPerFrame == 0)
+                    yield return null;
+            }
+            
+            if (newlyColored > 0 && debugMode)
+            {
+                Debug.Log($"<color=green>🔄 Colored {newlyColored} newly streamed meshes</color>");
+            }
         }
     }
 

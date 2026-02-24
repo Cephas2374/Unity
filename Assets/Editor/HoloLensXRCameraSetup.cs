@@ -93,6 +93,22 @@ public class HoloLensXRCameraSetup
             Debug.Log($"<color=green>✅ Added EnergyDemandLegend to {mainCam.name} for energy class overlay</color>");
             EditorUtility.SetDirty(mainCam.gameObject);
         }
+
+        // Auto-add HoloLensStreetLevel to CesiumGeoreference for XR street-level camera
+        // On HoloLens 2, the camera spawns at the tracking origin (~Y=1.6m head height).
+        // Without this, the georeference height places the user ~38m above the buildings.
+        // HoloLensStreetLevel lowers the georeference origin so buildings appear at floor level.
+        CesiumForUnity.CesiumGeoreference geoRef = Object.FindObjectOfType<CesiumForUnity.CesiumGeoreference>();
+        if (geoRef != null)
+        {
+            HoloLensStreetLevel streetLevel = geoRef.GetComponent<HoloLensStreetLevel>();
+            if (streetLevel == null)
+            {
+                streetLevel = geoRef.gameObject.AddComponent<HoloLensStreetLevel>();
+                Debug.Log($"<color=green>✅ Added HoloLensStreetLevel to {geoRef.name} for XR street-level placement</color>");
+                EditorUtility.SetDirty(geoRef.gameObject);
+            }
+        }
     }
 
     [MenuItem("Tools/HoloLens/Setup Main Camera for XR")]

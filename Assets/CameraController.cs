@@ -69,6 +69,19 @@ public class CameraController : MonoBehaviour
     
     void Update()
     {
+        // Re-check XR status for the first 120 frames (2 seconds at 60fps).
+        // XRSettings.isDeviceActive can lag behind on HoloLens 2 startup.
+        if (xrCheckFrames < 120)
+        {
+            xrCheckFrames++;
+            if (disableOnXR && XRSettings.isDeviceActive)
+            {
+                Debug.Log("<color=red>CameraController: XR device detected (late) - DISABLING desktop camera controls</color>");
+                this.enabled = false;
+                return;
+            }
+        }
+
         // DEBUG: Check if any movement keys are pressed
         if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.D))
         {
