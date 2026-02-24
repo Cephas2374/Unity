@@ -1,7 +1,14 @@
-// Forces alpha=1.0 while preserving RGB — used by ForceOpaqueAlpha.cs for MRC on HoloLens 2.
-// HoloLens 2 MRC uses the alpha channel to composite holograms over the real-world camera.
-// Cesium and other shaders may write alpha=0 for opaque geometry, making content invisible
-// in MRC recordings. This shader copies RGB exactly from the source and sets alpha=1.
+// Forces alpha=1.0 on every pixel — used by ForceOpaqueAlpha.cs for MRC on HoloLens 2.
+//
+// HoloLens 2 MRC composites holograms over the real-world camera feed using the alpha
+// channel. Cesium terrain and other shaders may write alpha=0/alpha<1 for opaque geometry,
+// making content invisible in MRC recordings.
+//
+// KEY DESIGN: Uses ColorMask A — writes ONLY to the alpha channel.
+//   • RGB values from scene rendering are untouched (no source texture read needed)
+//   • No temporary RenderTexture needed (avoids stereo texture array issues)
+//   • Works perfectly with single-pass instanced stereo rendering (HoloLens 2)
+//   • Called via CommandBuffer.Blit with a dummy source texture
 //
 // Stereo-aware: supports single-pass instanced rendering used by HoloLens 2.
 
@@ -9,7 +16,7 @@ Shader "Hidden/ForceAlphaOnly"
 {
     Properties
     {
-        _MainTex ("Texture", 2D) = "white" {}
+        _MainTex ("Texture", 2D) = "white" {} // Required by Blit API, not sampled
     }
     SubShader
     {
@@ -20,14 +27,13 @@ Shader "Hidden/ForceAlphaOnly"
             ZTest Always
             Cull Off
             ZWrite Off
+            ColorMask A // CRITICAL: writes ONLY alpha channel, preserves RGB
 
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile_instancing
             #include "UnityCG.cginc"
-
-            UNITY_DECLARE_SCREENSPACE_TEXTURE(_MainTex);
 
             struct appdata
             {
@@ -39,7 +45,6 @@ Shader "Hidden/ForceAlphaOnly"
             struct v2f
             {
                 float4 pos : SV_POSITION;
-                float2 uv : TEXCOORD0;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -50,16 +55,13 @@ Shader "Hidden/ForceAlphaOnly"
                 UNITY_INITIALIZE_OUTPUT(v2f, o);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 o.pos = UnityObjectToClipPos(v.vertex);
-                o.uv = v.uv;
                 return o;
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
-                fixed4 col = UNITY_SAMPLE_SCREENSPACE_TEXTURE(_MainTex, i.uv);
-                col.a = 1.0;
-                return col;
+                return fixed4(0, 0, 0, 1); // Only alpha=1 is written (ColorMask A)
             }
             ENDCG
         }

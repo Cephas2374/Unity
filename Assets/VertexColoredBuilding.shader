@@ -42,7 +42,7 @@ Shader "Cesium/VertexColoredBuilding"
             o.Albedo = finalColor.rgb;
             o.Metallic = _Metallic;
             o.Smoothness = _Glossiness;
-            o.Alpha = finalColor.a;
+            o.Alpha = 1.0; // Always opaque — HoloLens 2 MRC uses alpha for compositing
         }
         ENDCG
     }
