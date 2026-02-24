@@ -1763,8 +1763,8 @@ public class BuildingEnergyManager : MonoBehaviour
                     data.energyDemandAfter = endData["energy_demand_specific"]?["value"]?.ToObject<int?>() ?? 0;
                 }
                 
-                // ✅ Extract EXACT color from backend - NO conversion, NO defaults
-                string hexColor = energyResult["end"]?["color"]?["energy_demand_specific_color"]?.ToString();
+                // ✅ Extract EXACT color from backend (begin state = current condition) - NO conversion, NO defaults
+                string hexColor = energyResult["begin"]?["color"]?["energy_demand_specific_color"]?.ToString();
                 if (!string.IsNullOrEmpty(hexColor) && ColorUtility.TryParseHtmlString(hexColor, out Color parsedColor))
                 {
                     // ✅ Store color under BOTH modified_gml_id AND gml_id (like UE5 dual storage)
@@ -1777,7 +1777,7 @@ public class BuildingEnergyManager : MonoBehaviour
                     if (buildingDataCache.Count <= 10)
                     {
                         Debug.Log($"<color=green>🎨 Building '{gmlId}':</color>");
-                        Debug.Log($"<color=yellow>   • Energy Demand: {data.energyDemandAfter} kWh/m²a</color>");
+                        Debug.Log($"<color=yellow>   • Energy Demand: {data.energyDemandBefore} kWh/m²a (begin)</color>");
                         Debug.Log($"<color=yellow>   • EXACT API Hex Color: {hexColor}</color>");
                         Debug.Log($"<color=yellow>   • Dual cached: '{gmlId}' + '{data.gmlIdBasic}'</color>");
                     }
