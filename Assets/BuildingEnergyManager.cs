@@ -1793,8 +1793,12 @@ public class BuildingEnergyManager : MonoBehaviour
             }
             else
             {
-                // No energy_result, still cache the building with default color
-                buildingColorCache[gmlId] = defaultColor;
+                // No energy_result — do NOT add to buildingColorCache.
+                // Buildings without data will remain uncolored (original Cesium tile appearance).
+                if (buildingDataCache.Count <= 10)
+                {
+                    Debug.Log($"<color=grey>⏭️ Building '{gmlId}': No energy_result — skipping color cache</color>");
+                }
             }
             
             // ✅ Store GML ID mapping (like UE5's GmlIdCache)
