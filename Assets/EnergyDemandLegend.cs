@@ -61,6 +61,8 @@ public class EnergyDemandLegend : MonoBehaviour
     private GameObject legendPanel;
     private Image[] swatchImages;        // Swatch images (updated dynamically)
     private Text[] countTexts;
+    private Image noDataSwatch;           // "No data" row swatch
+    private Text noDataCountText;         // "No data" row count
     private Text titleText;
     private float updateTimer;
     private int totalBuildings;
@@ -137,7 +139,7 @@ public class EnergyDemandLegend : MonoBehaviour
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.sortingOrder = 90;
             RectTransform cRect = canvasObj.GetComponent<RectTransform>();
-            cRect.sizeDelta = new Vector2(320, 420);
+            cRect.sizeDelta = new Vector2(320, 460);
             canvasObj.transform.localScale = Vector3.one * 0.0004f;
         }
         else
@@ -162,7 +164,7 @@ public class EnergyDemandLegend : MonoBehaviour
             panelRect.anchorMin = new Vector2(0.5f, 0.5f);
             panelRect.anchorMax = new Vector2(0.5f, 0.5f);
             panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.sizeDelta = new Vector2(310, 400);
+            panelRect.sizeDelta = new Vector2(310, 440);
             panelRect.anchoredPosition = Vector2.zero;
         }
         else
@@ -170,7 +172,7 @@ public class EnergyDemandLegend : MonoBehaviour
             panelRect.anchorMin = new Vector2(1, 1); // top-right
             panelRect.anchorMax = new Vector2(1, 1);
             panelRect.pivot = new Vector2(1, 1);
-            panelRect.sizeDelta = new Vector2(260, 360);
+            panelRect.sizeDelta = new Vector2(260, 390);
             panelRect.anchoredPosition = new Vector2(-10, -10);
         }
 
@@ -180,7 +182,7 @@ public class EnergyDemandLegend : MonoBehaviour
         border.effectDistance = new Vector2(1, -1);
 
         // Title
-        float yTop = isXRDevice ? 170f : 155f;
+        float yTop = isXRDevice ? 190f : 170f;
         GameObject titleObj = CreateChild("Title", legendPanel, new Vector2(280, 36));
         RectTransform titleRect = titleObj.GetComponent<RectTransform>();
         titleRect.anchoredPosition = new Vector2(0, yTop);
@@ -249,6 +251,46 @@ public class EnergyDemandLegend : MonoBehaviour
             countTexts[i].text = "";
         }
 
+        // "No data" row below the energy classes
+        float noDataY = rowStartY - energyClassDefs.Length * rowHeight - (isXRDevice ? 10f : 8f);
+
+        // Separator line
+        GameObject separator = CreateChild("Separator", legendPanel, new Vector2(isXRDevice ? 260f : 220f, 1f));
+        RectTransform sepRect = separator.GetComponent<RectTransform>();
+        sepRect.anchoredPosition = new Vector2(0, noDataY + rowHeight * 0.55f);
+        Image sepImg = separator.AddComponent<Image>();
+        sepImg.color = new Color(0.4f, 0.4f, 0.4f, 0.5f);
+
+        // No data swatch (white = uncolored buildings)
+        GameObject ndSwatch = CreateChild("Swatch_NoData", legendPanel, new Vector2(swatchSize, swatchSize));
+        RectTransform ndSwR = ndSwatch.GetComponent<RectTransform>();
+        ndSwR.anchoredPosition = new Vector2(isXRDevice ? -120f : -100f, noDataY);
+        noDataSwatch = ndSwatch.AddComponent<Image>();
+        noDataSwatch.color = Color.white;
+
+        // No data label
+        GameObject ndLblObj = CreateChild("Label_NoData", legendPanel, new Vector2(160, rowHeight));
+        RectTransform ndLblR = ndLblObj.GetComponent<RectTransform>();
+        ndLblR.anchoredPosition = new Vector2(isXRDevice ? -20f : -5f, noDataY);
+        Text ndLblText = ndLblObj.AddComponent<Text>();
+        ndLblText.text = "No data";
+        ndLblText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        ndLblText.fontSize = isXRDevice ? 22 : 14;
+        ndLblText.alignment = TextAnchor.MiddleLeft;
+        ndLblText.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+        ndLblText.fontStyle = FontStyle.Italic;
+
+        // No data count
+        GameObject ndCntObj = CreateChild("Count_NoData", legendPanel, new Vector2(70, rowHeight));
+        RectTransform ndCntR = ndCntObj.GetComponent<RectTransform>();
+        ndCntR.anchoredPosition = new Vector2(isXRDevice ? 115f : 95f, noDataY);
+        noDataCountText = ndCntObj.AddComponent<Text>();
+        noDataCountText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        noDataCountText.fontSize = isXRDevice ? 20 : 13;
+        noDataCountText.alignment = TextAnchor.MiddleRight;
+        noDataCountText.color = new Color(0.6f, 0.6f, 0.6f, 1f);
+        noDataCountText.text = "";
+
         // Initial counts
         RefreshCounts();
     }
@@ -307,13 +349,13 @@ public class EnergyDemandLegend : MonoBehaviour
         }
         colorsResolved = true;
 
-        // Update count labels
+        // Update count labels (all percentages relative to totalBuildings → sums to 100%)
         for (int i = 0; i < classCount; i++)
         {
             if (totalBuildings > 0)
             {
                 float pct = counts[i] * 100f / totalBuildings;
-                countTexts[i].text = $"{pct:F1}% ({counts[i]})";
+                countTexts[i].text = $"{pct:F1}%";
             }
             else
             {
@@ -321,11 +363,24 @@ public class EnergyDemandLegend : MonoBehaviour
             }
         }
 
-        // Update title with total + noData
-        if (totalBuildings > 0 && noData > 0)
+        // Update "No data" row
+        if (noDataCountText != null)
         {
-            float noDataPct = noData * 100f / totalBuildings;
-            titleText.text = $"Energy Demand Classes\n<size={( isXRDevice ? 18 : 12)}><color=#999999>No data: {noDataPct:F1}% ({noData})</color></size>";
+            if (totalBuildings > 0)
+            {
+                float noDataPct = noData * 100f / totalBuildings;
+                noDataCountText.text = $"{noDataPct:F1}%";
+            }
+            else
+            {
+                noDataCountText.text = "—";
+            }
+        }
+
+        // Update title with total building count
+        if (totalBuildings > 0)
+        {
+            titleText.text = $"Energy Demand Classes\n<size={( isXRDevice ? 18 : 12)}><color=#999999>{totalBuildings} buildings</color></size>";
         }
         else
         {
