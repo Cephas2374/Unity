@@ -4,9 +4,18 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Displays an Energy Demand class legend overlay matching the German Energieausweis
-/// classification (kWh/m²a). Counts buildings per class from BuildingEnergyManager cache.
-/// 
+/// Displays a DYNAMIC Energy Demand class legend overlay.
+/// Colors are derived from the actual backend API colors stored in
+/// BuildingEnergyManager.buildingColorCache — not hardcoded.
+///
+/// For each German Energieausweis class (A+ through H), the legend samples
+/// the real API color from a building in that class, so the swatch always
+/// matches what is painted on the 3D Tiles.
+///
+/// Uses energyDemandBefore (begin state = current condition) to classify
+/// buildings, matching the begin.color.energy_demand_specific_color used
+/// for vertex coloring.
+///
 /// On HoloLens 2: WorldSpace canvas, follows user gaze (top-right).
 /// On Desktop: ScreenSpaceOverlay, anchored top-right.
 /// </summary>
@@ -20,40 +29,54 @@ public class EnergyDemandLegend : MonoBehaviour
     public float updateInterval = 5f;
 
     // German Energieausweis energy demand classes (kWh/m²a thresholds)
-    // based on EnEV / GEG standard ranges
-    private static readonly EnergyClass[] energyClasses = new EnergyClass[]
+    // Colors are populated dynamically from the API at runtime
+    private static readonly EnergyClassDef[] energyClassDefs = new EnergyClassDef[]
     {
-        new EnergyClass("A+",    0,   30, new Color32( 0, 128,  0, 255)),  // dark green
-        new EnergyClass("A",    30,   50, new Color32( 0, 176,  80, 255)), // green
-        new EnergyClass("B",    50,   75, new Color32(146, 208,  80, 255)), // lime
-        new EnergyClass("C",    75,  100, new Color32(255, 255,   0, 255)), // yellow
-        new EnergyClass("D",   100,  130, new Color32(255, 192,   0, 255)), // amber
-        new EnergyClass("E",   130,  160, new Color32(255, 128,   0, 255)), // orange
-        new EnergyClass("F",   160,  200, new Color32(255,  64,   0, 255)), // red-orange
-        new EnergyClass("G",   200,  250, new Color32(224,  32,  32, 255)), // red
-        new EnergyClass("H",   250, 9999, new Color32(160,   0,   0, 255)), // dark red
+        new EnergyClassDef("A+",   0,   30),
+        new EnergyClassDef("A",   30,   50),
+        new EnergyClassDef("B",   50,   75),
+        new EnergyClassDef("C",   75,  100),
+        new EnergyClassDef("D",  100,  130),
+        new EnergyClassDef("E",  130,  160),
+        new EnergyClassDef("F",  160,  200),
+        new EnergyClassDef("G",  200,  250),
+        new EnergyClassDef("H",  250, 9999),
+    };
+
+    // Fallback colors (German EnEV gradient) used only if no building exists in a class
+    private static readonly Color32[] fallbackColors = new Color32[]
+    {
+        new Color32(  0, 128,   0, 255), // A+ dark green
+        new Color32(  0, 176,  80, 255), // A  green
+        new Color32(146, 208,  80, 255), // B  lime
+        new Color32(255, 255,   0, 255), // C  yellow
+        new Color32(255, 192,   0, 255), // D  amber
+        new Color32(255, 128,   0, 255), // E  orange
+        new Color32(255,  64,   0, 255), // F  red-orange
+        new Color32(224,  32,  32, 255), // G  red
+        new Color32(160,   0,   0, 255), // H  dark red
     };
 
     private Camera mainCamera;
     private GameObject legendPanel;
+    private Image[] swatchImages;        // Swatch images (updated dynamically)
     private Text[] countTexts;
     private Text titleText;
     private float updateTimer;
     private int totalBuildings;
+    private bool colorsResolved = false; // True once we have sampled API colors
 
-    private struct EnergyClass
+    private struct EnergyClassDef
     {
         public string label;
         public int minKwh;
         public int maxKwh;
-        public Color32 color;
 
-        public EnergyClass(string label, int min, int max, Color32 color)
+        public EnergyClassDef(string label, int min, int max)
         {
             this.label = label;
             this.minKwh = min;
             this.maxKwh = max;
-            this.color = color;
         }
     }
 
@@ -181,22 +204,24 @@ public class EnergyDemandLegend : MonoBehaviour
         subText.color = new Color(0.7f, 0.7f, 0.7f, 1f);
 
         // Class rows
-        countTexts = new Text[energyClasses.Length];
+        int classCount = energyClassDefs.Length;
+        swatchImages = new Image[classCount];
+        countTexts = new Text[classCount];
         float rowStartY = yTop - 64f;
         float rowHeight = isXRDevice ? 34f : 28f;
         float swatchSize = isXRDevice ? 24f : 18f;
 
-        for (int i = 0; i < energyClasses.Length; i++)
+        for (int i = 0; i < classCount; i++)
         {
             float y = rowStartY - i * rowHeight;
-            var ec = energyClasses[i];
+            var ec = energyClassDefs[i];
 
-            // Color swatch
+            // Color swatch (initially fallback; updated dynamically when data arrives)
             GameObject swatch = CreateChild("Swatch_" + ec.label, legendPanel, new Vector2(swatchSize, swatchSize));
             RectTransform swR = swatch.GetComponent<RectTransform>();
             swR.anchoredPosition = new Vector2(isXRDevice ? -120f : -100f, y);
-            Image swImg = swatch.AddComponent<Image>();
-            swImg.color = ec.color;
+            swatchImages[i] = swatch.AddComponent<Image>();
+            swatchImages[i].color = fallbackColors[i];
 
             // Label: "A+ (0–30)"
             string rangeLabel = ec.maxKwh >= 9999
@@ -234,15 +259,19 @@ public class EnergyDemandLegend : MonoBehaviour
     {
         if (energyManager == null || countTexts == null) return;
 
-        // Count buildings per energy class using cached data
-        int[] counts = new int[energyClasses.Length];
+        // Count buildings per energy class and sample API colors
+        int classCount = energyClassDefs.Length;
+        int[] counts = new int[classCount];
+        Color[] sampledColors = new Color[classCount]; // first API color found per class
+        bool[] colorFound = new bool[classCount];
         int noData = 0;
         totalBuildings = 0;
 
         foreach (var kvp in energyManager.buildingDataCache)
         {
             totalBuildings++;
-            int kwh = kvp.Value.energyDemandAfter;
+            // Use energyDemandBefore (begin state = current condition)
+            int kwh = kvp.Value.energyDemandBefore;
 
             if (kwh <= 0)
             {
@@ -250,18 +279,36 @@ public class EnergyDemandLegend : MonoBehaviour
                 continue;
             }
 
-            for (int i = 0; i < energyClasses.Length; i++)
+            for (int i = 0; i < classCount; i++)
             {
-                if (kwh >= energyClasses[i].minKwh && kwh < energyClasses[i].maxKwh)
+                if (kwh >= energyClassDefs[i].minKwh && kwh < energyClassDefs[i].maxKwh)
                 {
                     counts[i]++;
+
+                    // Sample the actual API color for this class (first match wins)
+                    if (!colorFound[i] && energyManager.buildingColorCache.TryGetValue(kvp.Key, out Color apiColor))
+                    {
+                        sampledColors[i] = apiColor;
+                        colorFound[i] = true;
+                    }
                     break;
                 }
             }
         }
 
-        // Update UI
-        for (int i = 0; i < energyClasses.Length; i++)
+        // Update swatch colors dynamically from API data
+        for (int i = 0; i < classCount; i++)
+        {
+            if (colorFound[i] && swatchImages[i] != null)
+            {
+                swatchImages[i].color = sampledColors[i];
+            }
+            // If no building in this class, keep fallback color (already set at creation)
+        }
+        colorsResolved = true;
+
+        // Update count labels
+        for (int i = 0; i < classCount; i++)
         {
             if (totalBuildings > 0)
             {
