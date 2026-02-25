@@ -1,0 +1,52 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: CesiumSkyWithClouds
+  m_Shader: {fileID: 4800000, guid: 9bbc9f39c1544aa478e7774703331427, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _CloudAltitude: 1.5
+    - _CloudBrightTop: 1.3
+    - _CloudCoverage: 0.3
+    - _CloudDetail: 0.45
+    - _CloudMinElev: 0.35
+    - _CloudOpacity: 0.85
+    - _CloudScale: 6
+    - _CloudSoftness: 0.25
+    - _CloudSpeed: 0.006
+    - _Exposure: 1.2
+    - _HazeStrength: 0.35
+    - _ShadowOffset: 0.08
+    - _SunGlow: 1.5
+    - _SunSize: 0.025
+    m_Colors:
+    - _CloudAmbient: {r: 0.72, g: 0.76, b: 0.85, a: 1}
+    - _CloudColor: {r: 1, g: 1, b: 1, a: 1}
+    - _CloudShadow: {r: 0.58, g: 0.62, b: 0.72, a: 1}
+    - _GroundColor: {r: 0.36999997, g: 0.34999996, b: 0.33999997, a: 1}
+    - _HazeColor: {r: 0.75, g: 0.83, b: 0.95, a: 1}
+    - _SkyHorizonColor: {r: 0.7, g: 0.82, b: 0.96, a: 1}
+    - _SkyMidColor: {r: 0.45, g: 0.62, b: 0.9, a: 1}
+    - _SkyTopColor: {r: 0.23999995, g: 0.43999997, b: 0.82, a: 1}
+    - _SunColor: {r: 1, g: 0.96, b: 0.88, a: 1}
+  m_BuildTextureStacks: []

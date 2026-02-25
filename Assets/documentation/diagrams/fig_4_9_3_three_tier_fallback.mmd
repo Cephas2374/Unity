@@ -1,0 +1,73 @@
+%%{init: {"theme": "default", "themeVariables": {"fontSize": "24px"}, "state": {"fontSize": 22}} }%%
+stateDiagram-v2
+    direction TB
+
+    [*] --> InitialLoad: Application Start<br/>LoadBuildingData()
+
+    state InitialLoad {
+        [*] --> FetchData: GET /buildings-energy/
+        FetchData --> ParseCache: Parse ~4,800 buildings
+        ParseCache --> ColorTiles: CesiumFeatureColorizer
+        ColorTiles --> ConnectWS: ConnectWebSocket()
+    }
+
+    state "TIER 1: WebSocket Active" as T1 {
+        state "wss:// connected + authenticated" as T1_conn
+        state "Polling SUPPRESSED (wsActive = true)" as T1_poll
+        state "Updates via server push (~200-500 ms)" as T1_push
+        state "Keepalive ping every 30s" as T1_ping
+        T1_conn --> T1_poll
+        T1_poll --> T1_push
+        T1_push --> T1_ping
+        T1_ping --> T1_push
+    }
+
+    state "TIER 2: Reconnecting" as T2 {
+        state "WebSocket disconnected" as T2_disc
+        state "Exponential backoff: d = min(5n, 60)s" as T2_back
+        state "Attempts: 1/5, 2/5, ... 5/5" as T2_att
+        state "Polling ACTIVE (120s interval)" as T2_poll
+        T2_disc --> T2_back
+        T2_back --> T2_att
+        T2_att --> T2_poll
+    }
+
+    state "TIER 3: Polling Only" as T3 {
+        state "WebSocket abandoned (max attempts exceeded)" as T3_fail
+        state "HTTP GET every 120s (full dataset diff)" as T3_poll
+        state "Functionally equivalent to pre-WebSocket behavior" as T3_equiv
+        T3_fail --> T3_poll
+        T3_poll --> T3_equiv
+    }
+
+    InitialLoad --> T1: WebSocket connects<br/>+ auth_ok received
+
+    InitialLoad --> T3: WebSocket disabled<br/>(enableWebSocket = false)
+
+    T1 --> T2: Connection lost<br/>(socket close / keepalive timeout)<br/>OnConnectionChanged(false)
+
+    T2 --> T1: Reconnect succeeds<br/>auth_ok received<br/>ReconnectAttempts = 0<br/>changeCheckTimer = 0
+
+    T2 --> T3: All 5 attempts exhausted<br/>Max reconnect attempts reached<br/>OnConnectionChanged(false)
+
+    T3 --> T1: Manual reconnect<br/>(e.g., app re-auth)
+
+    note right of T1
+        Sub-second latency
+        Zero redundant bandwidth
+        Zero DB queries from polling
+        Single persistent TCP connection
+    end note
+
+    note right of T2
+        Degraded: 120s poll latency
+        Backoff delays: 5s, 10s, 15s, 20s, 25s
+        Data sync continues via polling
+    end note
+
+    note right of T3
+        No push updates
+        120s worst-case latency
+        ~72 MB/hour bandwidth
+        Full functionality preserved
+    end note

@@ -1,0 +1,20 @@
+{
+  "theme": "default",
+  "themeVariables": {
+    "fontSize": "24px",
+    "fontFamily": "arial,sans-serif"
+  },
+  "sequence": {
+    "fontSize": 24,
+    "actorFontSize": 24,
+    "noteFontSize": 22,
+    "messageFontSize": 22,
+    "width": 280,
+    "height": 80,
+    "boxMargin": 16,
+    "noteMargin": 16,
+    "messageMargin": 50,
+    "mirrorActors": true,
+    "useMaxWidth": false
+  }
+}

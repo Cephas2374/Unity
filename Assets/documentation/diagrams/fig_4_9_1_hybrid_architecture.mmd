@@ -1,0 +1,58 @@
+graph TB
+    subgraph HL2["<b>HoloLens 2 Client</b><br/>(Unity 2022 · IL2CPP · ARM64)"]
+        direction TB
+        BEM["<b>BuildingEnergyManager</b><br/>In-Memory Cache · Color Cache<br/>Visualization Pipeline"]
+        WSC["<b>BuildingWebSocketClient</b><br/>Platform-Abstracted"]
+        
+        subgraph PL["Compile-Time Platform Abstraction<br/>#if UNITY_WSA && !UNITY_EDITOR"]
+            UWP["<b>UWP — HoloLens 2</b><br/>MessageWebSocket<br/><i>Windows.Networking.Sockets</i><br/>UI-thread dispatch"]
+            STD["<b>.NET — Editor/Standalone</b><br/>ClientWebSocket<br/><i>System.Net.WebSockets</i><br/>ThreadPool dispatch"]
+        end
+
+        Q["Thread-Safe<br/>Queue string + lock<br/><i>Background → Main Thread</i>"]
+        POLL["<b>HTTP Polling Fallback</b><br/>GET /buildings-energy/<br/>Interval: 120 s<br/><i>Active ONLY when WS disconnected</i>"]
+
+        WSC --> PL
+        UWP --> Q
+        STD --> Q
+        Q -->|"Update main-thread<br/>dispatch each frame"| BEM
+        POLL -.->|"changeCheckTimer >= 120s<br/>AND !wsActive"| BEM
+    end
+
+    subgraph BE["<b>Django Backend</b><br/>backend.gisworld-tech.com"]
+        direction TB
+        subgraph ASGI["ASGI Server · Daphne / Uvicorn"]
+            REST["<b>REST API</b><br/>Django REST Framework<br/>JWT Bearer Auth<br/>PUT /buildings-energy/"]
+            CON["<b>BuildingEnergyConsumer</b><br/>AsyncJsonWebSocketConsumer<br/>JWT Auth shared token<br/>ws/buildings/08417008/"]
+        end
+        SIG["<b>Django Signals</b><br/>post_save · post_delete<br/>notify_building_updated"]
+        DB[("<b>PostgreSQL + PostGIS</b><br/>~4,800 buildings<br/>Community 08417008")]
+
+        REST -->|"ORM write"| DB
+        DB -->|"post_save<br/>signal"| SIG
+    end
+
+    subgraph RD["<b>Message Broker</b>"]
+        REDIS[("<b>Redis</b><br/>Channel Layer<br/>Pub/Sub<br/>Group: buildings_08417008")]
+    end
+
+    WSC ===|"PRIMARY PATH<br/>wss:// persistent full-duplex TCP<br/>Sub-second latency"| CON
+    SIG -->|"async_to_sync<br/>group_send"| REDIS
+    REDIS -->|"Fan-out to all<br/>subscribed consumers"| CON
+    POLL -.->|"FALLBACK PATH<br/>HTTPS GET stateless<br/>120s interval"| REST
+
+    classDef primary fill:#1565c0,stroke:#0d47a1,color:#fff,font-weight:bold
+    classDef fallback fill:#ef6c00,stroke:#e65100,color:#fff,font-weight:bold
+    classDef redis fill:#c62828,stroke:#b71c1c,color:#fff,font-weight:bold
+    classDef db fill:#2e7d32,stroke:#1b5e20,color:#fff,font-weight:bold
+    classDef signal fill:#6a1b9a,stroke:#4a148c,color:#fff,font-weight:bold
+    classDef platform fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef manager fill:#1a237e,stroke:#0d1642,color:#fff,font-weight:bold
+
+    class WSC,CON primary
+    class POLL,REST fallback
+    class REDIS redis
+    class DB db
+    class SIG signal
+    class UWP,STD platform
+    class BEM manager

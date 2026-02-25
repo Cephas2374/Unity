@@ -1,0 +1,44 @@
+%%{init: {"theme": "default", "themeVariables": {"fontSize": "24px"}, "sequence": {"actorFontSize": 24, "noteFontSize": 22, "messageFontSize": 22, "width": 280, "height": 80, "messageMargin": 50}} }%%
+sequenceDiagram
+    autonumber
+    participant WEB as Web Platform<br/>(or HoloLens Edit)
+    participant API as Django REST API<br/>PUT /buildings-energy/
+    participant DB as PostgreSQL<br/>+ PostGIS
+    participant SIG as Django Signal<br/>post_save
+    participant REDIS as Redis<br/>Channel Layer
+    participant CON as BuildingEnergy<br/>Consumer (ASGI)
+    participant WS as WebSocket<br/>(wss://)
+    participant HL as HoloLens 2<br/>BuildingWebSocketClient
+    participant BEM as BuildingEnergy<br/>Manager (Unity)
+    participant VIZ as CesiumFeature<br/>Colorizer
+
+    Note over WEB,VIZ: Stage 1: REST API Write
+    WEB->>+API: PUT /geospatial/buildings-energy/{gml_id}/<br/>{"heating_system": "heat_pump", ...}
+    API->>+DB: UPDATE building SET ... WHERE gml_id = ?
+    DB-->>-API: Updated record (with recalculated energy + color)
+    API-->>-WEB: 200 OK { full building JSON }
+
+    Note over DB,SIG: Stage 2: Django Signal Dispatch
+    DB-)SIG: post_save signal fires<br/>sender=BuildingEnergy, instance=updated
+
+    Note over SIG,REDIS: Stage 3: Serialization + Group Send
+    SIG->>SIG: _serialize_building(instance)<br/>JSON matching API response format
+    SIG->>+REDIS: async_to_sync(channel_layer.group_send)<br/>group="buildings_08417008"<br/>type="building_updated", data={...}
+
+    Note over REDIS,CON: Stage 4: Redis Distribution
+    REDIS-->>-CON: Pub/Sub fan-out to all<br/>subscribed consumers in group
+
+    Note over CON,HL: Stage 5: WebSocket Delivery
+    CON->>CON: building_updated(event)<br/>check self.authenticated
+    CON->>WS: send_json({"type": "building_updated",<br/>"data": { full building JSON }})
+    WS->>HL: WebSocket text frame<br/>(~500 bytes)
+
+    Note over HL,VIZ: Client-Side Processing
+    HL->>HL: Background thread enqueues<br/>to Queue string (lock)
+    HL->>BEM: Update() main-thread dispatch<br/>OnBuildingUpdated event
+    BEM->>BEM: ParseSingleBuilding(JObject)<br/>Update buildingDataCache[gmlId]<br/>Update buildingColorCache[gmlId]
+    BEM->>VIZ: RecolorSingleBuilding(gmlId, color)<br/>Update vertex colors on tile mesh
+    BEM->>WS: ACK {"type":"ack", "gml_id":"..."}
+    WS->>CON: Diagnostic acknowledgement
+
+    Note over WEB,VIZ: Total latency: 200-500 ms end-to-end
